@@ -1,0 +1,41 @@
+Daftar file sebelum PR #6, ditambah 3 file baru dari PR #6.
+Status menunjukkan apakah isi asli tersedia, bukan apakah workflow dapat berjalan.
+
+.github/workflows/linux-remote-workspace.yml | FILE BELUM DIPEROLEH | Git blob sebelum PR #6: aac58836287009d814b3755e34a660e32058f8b0
+.github/workflows/macos-remote-workspace.yml | FILE BELUM DIPEROLEH | Git blob sebelum PR #6: f22e9df7a6a07cb84d5b29ee5133cd7f0df6844a
+.github/workflows/multi-os-remote.yml | FILE BELUM DIPEROLEH | Git blob sebelum PR #6: 56d76d223b6ea84e9bbea56db6972659cd202273
+.github/workflows/windows-installer-checks.yml | SOURCE UTUH DI RIWAYAT PR #6
+.github/workflows/windows-remote-workspace.yml | FILE BELUM DIPEROLEH | Git blob sebelum PR #6: c0bd3c4ab4ad835354df12f3e269220eeeaa6cf3
+README.md | VERSI ORIGINAL LEBIH LAMA ADA, blob 8c35f8b084e857b8ad42e56493e5a952b14dc3a3
+docs/ACCEPTANCE_MATRIX.md | FILE BELUM DIPEROLEH
+linux/README.md | FILE BELUM DIPEROLEH
+linux/install-antigravity.sh | FILE BELUM DIPEROLEH
+linux/install-apps.sh | FILE BELUM DIPEROLEH
+linux/install-artcraft.sh | FILE BELUM DIPEROLEH
+linux/install-chrome.sh | FILE BELUM DIPEROLEH
+linux/install-hermes.sh | FILE BELUM DIPEROLEH
+linux/install-metatrader.sh | FILE BELUM DIPEROLEH
+linux/setup-rdp.sh | FILE BELUM DIPEROLEH
+linux/start-igos.sh | FILE BELUM DIPEROLEH
+linux/test-metatrader-gui.sh | FILE BELUM DIPEROLEH
+linux/test-rdp-gui.sh | FILE BELUM DIPEROLEH
+linux/workspace.sh | FILE BELUM DIPEROLEH
+macos/README.md | FILE BELUM DIPEROLEH
+macos/ScreenCaptureWorker.swift | FILE BELUM DIPEROLEH
+macos/WINDOWS_CONTROL.md | FILE BELUM DIPEROLEH
+macos/build-screen-capture-worker.sh | FILE BELUM DIPEROLEH
+macos/diagnose-desktop-session.sh | VERSI REPO PEMULIHAN ADA, salinan original belum terverifikasi
+macos/diagnose-display.sh | VERSI REPO PEMULIHAN ADA, salinan original belum terverifikasi
+macos/diagnose-vnc.sh | VERSI REPO PEMULIHAN ADA, salinan original belum terverifikasi
+macos/gui-preview.py | FILE BELUM DIPEROLEH
+macos/install-apps.sh | FILE BELUM DIPEROLEH
+macos/launch-preview-ssh.sh | FILE BELUM DIPEROLEH
+macos/start-gui-preview.sh | FILE BELUM DIPEROLEH
+macos/tailscale-dns-guard.sh | FILE BELUM DIPEROLEH
+macos/test-gui-preview.sh | FILE BELUM DIPEROLEH
+macos/workspace.sh | FILE BELUM DIPEROLEH
+windows/Install-MetaTrader.ps1 | FILE BELUM DIPEROLEH
+windows/Test-Workspace-InstallStatus.ps1 | SOURCE UTUH DI RIWAYAT PR #6
+windows/Workspace-InstallStatus.ps1 | SOURCE UTUH DI RIWAYAT PR #6
+windows/test_wfs_macos_controller.py | FILE BELUM DIPEROLEH
+windows/wfs-macos-controller.py | FILE BELUM DIPEROLEH

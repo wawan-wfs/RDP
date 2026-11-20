@@ -1,55 +1,79 @@
-# WFS Remote Workspaces
+<div align="center">
 
-> Pemulihan dari catatan chat proyek wawanwfs/RDP. Bukan clone source lama dan tidak membawa riwayat commit, workflow, atau pengaturan runner lama.
+# WFS Remote Workspaces · Rebuild
 
-Panduan koneksi dan diagnosis untuk mesin yang Anda miliki atau kelola. Gunakan jaringan privat Tailscale atau jaringan internal yang tepercaya. Jangan meneruskan port RDP, VNC, atau SSH langsung ke internet. Kredensial dan auth key tidak disimpan di repo.
+**Windows RDP / noVNC · Linux XRDP / Selkies · macOS SSH / Screen Sharing**
 
-| Platform | Jalur koneksi | Catatan pemulihan |
+Tiga workflow manual, akses melalui tailnet privat, dan status koneksi yang terpisah dari pemasangan aplikasi.
+
+**[Mulai](#mulai)** · **[Windows](#windows)** · **[Linux](#linux)** · **[macos](#macos)** · **[Pengujian](#pengujian)**
+
+</div>
+
+> [!IMPORTANT]
+> Ini versi baru yang dibangun dari ZIP historis RDP, dokumentasi, dan catatan pengembangan. Bukan salinan byte-identik dari repo lama. Semua pilihan yang tercatat dipetakan di [matriks fitur](docs/PARITY.md), termasuk yang butuh pengujian runner atau instalasi interaktif.
+
+## Tiga workflow
+
+| Workflow | Default | Akses |
 | --- | --- | --- |
-| Windows | Remote Desktop atau MSTSC ke nama MagicDNS/IP Tailscale | Installer lama tidak tersedia. Regresi penanganan timeout pernah dilaporkan lulus, bukan bukti login RDP. |
-| Linux | XRDP dengan sesi Xorg/Xfce. Akses web merupakan opsi historis. | Hostname pilihan sebelumnya rdp-runner. Dokumentasi lama pernah menyebut rdp, tetapi koreksi terakhir menggunakan RDP pada setup lama. Periksa nama akun yang benar di mesin sekarang. |
-| macOS | SSH untuk diagnostik dan Apple Screen Sharing untuk desktop | SSH dan preview desktop pernah terlihat bekerja. Kontrol desktop TigerVNC belum terbukti dan layar hitam masih menjadi masalah terbuka. |
+| [windows-remote-workspace.yml](.github/workflows/windows-remote-workspace.yml) | Windows 2025 · RDP · 6 jam | RDP asli, noVNC browser, atau keduanya |
+| [linux-remote-workspace.yml](.github/workflows/linux-remote-workspace.yml) | Ubuntu · KDE · XRDP · 6 jam | XRDP X11, Selkies Webtop, atau keduanya |
+| [macos-remote-workspace.yml](.github/workflows/macos-remote-workspace.yml) | macOS 15 · SSH + coba VNC · 1 jam | SSH, Apple Screen Sharing jika tersedia, screenshot privat |
 
-## Cara koneksi
+## Mulai
 
-### Windows
+1. Ekstrak **isi folder** paket ke root repo Anda. Pastikan folder tersembunyi `.github` ikut tersalin. Tiga file YAML membutuhkan direktori `shared/`, `windows/`, `linux/`, dan `macos/`, jadi jangan menyalin hanya ketiga YAML-nya.
+2. Pada repo privat, simpan secret yang relevan lewat **Settings → Secrets and variables → Actions**. Koneksi memakai Tailscale dan aturan akses tailnet, bukan IP publik atau Cloudflare.
+3. Buka **Actions → WFS [OS] Remote Workspace → Run workflow**. Untuk percobaan pertama pilih satu jam dan opsi aplikasi minimum. Pilih `validation_only=true` untuk memeriksa kode di runner asli tanpa secret atau sesi remote.
+4. Buka **Summary** dari run yang aktif. Alamat koneksi muncul segera setelah layanan lolos pemeriksaan lokal, **sebelum** instalasi aplikasi. Setelah instalasi, Summary menambahkan status aplikasi.
+5. Gunakan perangkat yang sudah diizinkan pada tailnet. Hentikan run saat selesai dan simpan pekerjaan sebelum runner sementara hilang.
 
-1. Pada host Windows yang mendukung Remote Desktop, aktifkan Remote Desktop melalui Settings dan izinkan akun yang akan dipakai.
-2. Pastikan host dan klien terhubung ke jaringan privat yang sama, serta aturan jaringan dan firewall mengizinkan TCP 3389 hanya dari sumber yang diizinkan.
-3. Dari klien Windows, buka **Remote Desktop Connection** dan masukkan nama MagicDNS atau IP Tailscale host. Layar penuh bisa dipilih dari tab Display.
-4. Jika instalasi aplikasi gagal, catat status per aplikasi dan periksa koneksi RDP secara terpisah. MetaTrader, OmniRoute, dan installer lain belum diuji ulang di repo ini.
+Pakai GitHub-hosted runner hanya untuk pengembangan atau pengujian software yang terkait dengan repo. Untuk lab umum, gunakan host milik Anda yang terisolasi dan `runner_type=self-hosted`. Labelnya `wfs-windows`, `wfs-linux`, atau `wfs-macos`. Pasang dan autentikasi Tailscale lebih dulu di host itu, lalu set repository variable `WFS_DEDICATED_RUNNER=true`. Jangan jalankan paket ini di mesin utama yang sedang dipakai orang lain. Paket mengubah konfigurasi lab dan beberapa aplikasi OS dapat tetap terpasang pada host persisten. [Ketentuan GitHub Actions](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features#actions)
 
-Referensi: [Windows RDP melalui Tailscale](https://tailscale.com/docs/solutions/access-remote-desktops-using-windows-rdp)
-
-### Linux
-
-1. Pada host Debian yang dikelola sendiri, siapkan XRDP, xorgxrdp, dan desktop Xfce dari repositori distro. Pastikan terdapat akun lokal non-root dan PAM dapat mengautentikasinya.
-2. Cek akun menggunakan `getent passwd RDP` atau `getent passwd rdp` sesuai nama yang dibuat. Nama akun peka huruf besar/kecil. Jangan mencoba mengganti kapitalisasi tanpa memastikan akun itu memang ada.
-3. Hubungkan klien RDP ke nama host privat, gunakan sesi **Xorg**, lalu login dengan akun lokal. Jika login berhasil tetapi desktop hitam, cek konfigurasi Xfce dan log layanan `xrdp` serta `xrdp-sesman`.
-4. Chromium adalah pilihan browser yang tercatat. Riwayat juga mencantumkan Cookie-Editor dan GoFullPage. Mode akses web dan pemasangan ekstensi otomatis belum dipulihkan.
-
-### macOS
-
-1. Pada host milik Anda, gunakan **System Settings → General → Sharing**. Aktifkan Remote Login atau Screen Sharing sesuai kebutuhan dan batasi ke pengguna yang diizinkan. Jika Remote Management dipakai, ikuti opsi akses yang dikelola di sana.
-2. Uji konektivitas dengan `ssh NAMA_AKUN@HOST_PRIVAT`. Contoh akun dari riwayat adalah `wfsremote`.
-3. Dari Mac klien, coba **Screen Sharing** ke host privat. Port yang merespons atau autentikasi yang berhasil bukan bukti desktop dapat terlihat dan dikontrol.
-4. Bila layar hitam atau hanya kursor yang terlihat, cek siapa pengguna konsol, apakah domain GUI tersedia, dan apakah Finder serta Dock berjalan. Jangan menganggap preview browser sebagai bukti kontrol VNC.
-
-## Batas pemulihan
-
-- Tidak menjalankan installer atau sesi remote otomatis dari GitHub Actions.
-- Tidak ada bukti pengujian ulang koneksi Windows, Linux, atau macOS pada repo baru.
-- Tidak ada public tunnel atau Cloudflare keep-alive yang dipulihkan.
-- File workflow lama dan daftar aplikasi lengkap tidak tersedia dalam bahan yang berhasil ditemukan.
-
-## Skrip diagnostik hasil rekonstruksi
-
-Skrip berikut hanya membaca konfigurasi dan status. Jalankan langsung pada host yang sesuai.
-
-| Platform | Perintah |
+| Secret | Untuk apa |
 | --- | --- |
-| Windows | `powershell -NoProfile -File .\windows\diagnose-rdp.ps1` |
-| Linux | `bash linux/diagnose-xrdp.sh RDP` (ganti dengan `rdp` jika akun itu yang dibuat) |
-| macOS | `bash macos/diagnose-desktop-session.sh wfsremote`, `bash macos/diagnose-display.sh`, dan `bash macos/diagnose-vnc.sh wfsremote` |
+| `TAILSCALE_AUTH_KEY` | Node GitHub-hosted, gunakan auth key ephemeral/tagged yang sesuai ACL. Alias lama `TAILSCALE_AUTHKEY` diterima |
+| `RDP_PASSWORD` | Windows RDP, Linux XRDP, serta akun SSH dan autentikasi preview macOS |
+| `VNC_PASSWORD` | Windows noVNC dan browser Selkies Linux. Password ini berbeda dari autentikasi Apple Screen Sharing |
 
-Lihat [catatan pemulihan](docs/recovery-notes.md) untuk bukti historis dan langkah uji yang masih diperlukan.
+Jangan taruh nilai secret pada input, URL, file repo, atau tangkapan layar Summary. Windows RDP memerlukan minimal 12 byte, tiga jenis karakter, dan password yang tidak memuat nama akun. Default `same_from_secret`. Mode `random_each_run` menurunkan password dari secret dan Run ID secara lokal, tidak menampilkannya di Summary. Lihat [cara menghitung password per-run](docs/OPERATIONS.md#password-per-run).
+
+Hostname default `rdp-runner` dengan `same_each_run`. Jika ingin sesi paralel, pilih `unique_each_run` agar node memiliki sufiks run dan attempt. Pada self-hosted, alamat dan nama aktif berasal dari node Tailscale yang sudah ada. Selalu salin alamat aktual dari Summary. Sesi 1/3/6 jam tetap dibatasi waktu job dan menyisakan waktu cleanup, jadi enam jam bukan enam jam penuh setelah setup.
+
+## Windows
+
+- `rdp` memakai **TCP 3389**, NLA, dan akun standar sementara `RDP`. Jalankan `mstsc /v:IP-TAILSCALE:3389` dari PC Windows. `/f` membuka mode layar penuh.
+- `novnc` memakai TightVNC loopback plus bridge Python/noVNC. Pilih x64. Default **HTTP privat port 6082** melalui Tailscale, atau pilih `tailscale_https` untuk mencoba HTTPS port 443 lalu fallback TCP jika HTTPS tidak tersedia. Windows noVNC memakai 8 karakter ASCII pertama dari secret. Untuk mode ini, gunakan password unik.
+- `both` menguji jalur RDP dan noVNC secara terpisah. Jika salah satu gagal, yang lulus tetap berjalan. Desktop console noVNC mungkin berbeda dari sesi RDP. Aktifkan scaling dengan URL Summary dan gunakan tombol fullscreen atau F11.
+- Opsi runner mencakup 2025, 2022, latest, ARM64 untuk RDP, dan 2025 VS2026 sesuai ketersediaan runner akun.
+- Chrome, WinRAR, Node.js LTS, VS Code, Antigravity, CapCut, Shotcut, ArtCraft Launcher, MT4 Exness, MT5, 9Router, OmniRoute, Codex, Claude Code, Hermes, OpenClaw, dan OpenCode tersedia sebagai default atau pilihan. Policy **Cookie-Editor + GoFullPage** diterapkan, lalu cek ekstensi aktual di profil browser.
+- Chrome/MSI memiliki jalur fallback vendor. Installer tertentu yang butuh profil user disiapkan untuk login RDP atau shortcut. **Pending interactive** berarti belum terbukti terpasang. Tidak ada login otomatis ke broker atau provider AI.
+
+## Linux
+
+- Default **Ubuntu KDE + XRDP**, username **`RDP`** huruf besar. Jika prompt XRDP menampilkan pilihan sesi, pilih **Xorg**.
+- `novnc` tetap nama input kompatibilitas. Browser sebenarnya memakai **Selkies Webtop**, bukan noVNC, dengan username default `wfs`. Gunakan HTTPS port **443** bila Serve tersedia atau **6082** di tailnet dengan sertifikat bawaan Webtop. Cek alamat sebelum menerima sertifikat.
+- Mode `both` memakai satu container tetapi dua sesi desktop dengan profil berbeda. Ubuntu, Debian, Fedora, Alpine, dan Arch memakai Webtop native. **Arch dan Alpine KDE hanya browser**. Ubuntu LXQt tersedia untuk XRDP saja. **IGOS Nusantara** tetap opsi eksperimen ISO/QEMU melalui Xfce/RDP di runner self-hosted dengan ISO lokal.
+- Gunakan Chromium yang tersedia lebih dulu, tanpa memasang Chrome. Kebijakan **Cookie-Editor + GoFullPage** diterapkan. Jika image Ubuntu tidak menyediakan Chromium, installer mencoba Chromium dari Playwright.
+- Pilihan VS Code, Antigravity, Shotcut, router/agent, ArtCraft, bundle, MT4/MT5 Wine, dan WebTerminal tersedia sesuai distro. CapCut native berada di Windows. Instalasi GUI Wine ditandai interaktif, bukan diklaim otomatis.
+
+## macOS
+
+- Runner Apple Silicon/Intel macOS 15/26 sesuai label yang tersedia, bukan Hackintosh. Dari Windows PowerShell buka `ssh -p 2222 wfsremote@IP-TAILSCALE`. Cocokkan fingerprint di Summary sebelum menerima host key.
+- Mode `both` tidak mematikan SSH jika Screen Sharing tidak tersedia. Apple VNC **port 5900** hanya dipublikasikan bila server yang sudah diaktifkan melalui metode yang diotorisasi menjawab RFB. RFB ready **tidak membuktikan login atau mouse/keyboard**.
+- Preview **port 6081** memakai tombol **Capture one frame**, password, dan cooldown 60 detik. Ia hanya dapat mengambil gambar dari akun yang berhak dan berada di sesi console. Jika izin Screen Recording belum diberikan, preview menampilkan kegagalan, tidak menonaktifkan proteksi. [Panduan Apple](https://support.apple.com/en-me/guide/remote-desktop/apd8b1c65bd/mac)
+- Opsi aplikasi VS Code, Codex, Claude Code, bundle developer/media, dan MetaTrader WebTerminal. WebTerminal tidak menjalankan EA desktop.
+
+## Pengujian
+
+Mode **`validation_only=true`** tersedia di ketiga workflow. Mode ini tidak mengambil secret atau membuka port remote. Untuk tes lokal dari root paket:
+
+```bash
+python3 -m pip install -r tests/requirements.txt
+python3 tests/test_workspaces.py
+python3 windows/test_novnc.py
+python3 tests/linux_mock.py
+```
+
+Untuk tes native Windows tambahkan `pwsh -File tests/verify-windows.ps1`. Prosedur acceptance lintas perangkat dan batasan masih perlu diuji di host asli ada di [OPERATIONS](docs/OPERATIONS.md).

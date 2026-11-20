@@ -1,0 +1,23 @@
+WFS Remote Workspaces Rebuild — local validation
+Source: RDP-main.zip (13329659b69300f279a70feea6077f9e52323697) plus recovery documentation.
+No real credentials, external remote sessions, or deployment were used.
+
+Python 3.12.14
+............
+----------------------------------------------------------------------
+Ran 12 tests in 0.705s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.031s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.592s
+
+OK
+Python compile: PASS
+Bash syntax: PASS
+PowerShell parser and native Windows/macOS/Docker desktop: NOT RUN here. Use validation_only on a native runner, then acceptance checklist.

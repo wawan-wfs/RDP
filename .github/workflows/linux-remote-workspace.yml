@@ -1,0 +1,271 @@
+# WFS Remote Workspaces — rebuilt version, not the old source snapshot.
+name: WFS Linux Remote Workspace
+on:
+  workflow_dispatch:
+    inputs:
+      runner_type:
+        description: Use a dedicated self-hosted host for long-lived or general-purpose work
+        required: true
+        type: choice
+        default: github
+        options:
+        - github
+        - self-hosted
+      validation_only:
+        description: Run source/fixture checks only; no secrets, tailnet or remote listener
+        required: true
+        type: boolean
+        default: false
+      duration_hours:
+        description: Maximum session duration, within the job timeout
+        required: true
+        type: choice
+        default: '6'
+        options:
+        - '6'
+        - '1'
+        - '3'
+      tailscale_hostname:
+        description: Requested hostname for new hosted tailnet nodes
+        required: true
+        type: string
+        default: rdp-runner
+      hostname_mode:
+        description: Reuse hostname or append run and attempt IDs
+        required: true
+        type: choice
+        default: same_each_run
+        options:
+        - same_each_run
+        - unique_each_run
+      distro:
+        description: Distro
+        required: true
+        type: choice
+        default: ubuntu
+        options:
+        - ubuntu
+        - debian
+        - fedora
+        - arch
+        - alpine
+        - igos-nusantara
+      desktop:
+        description: Desktop
+        required: true
+        type: choice
+        default: kde
+        options:
+        - kde
+        - xfce
+        - mate
+        - i3
+        - lxqt
+      transport:
+        description: Transport
+        required: true
+        type: choice
+        default: auto
+        options:
+        - auto
+        - tailnet_https
+        - tailnet_tls_tcp
+      rdp_username:
+        description: Temporary desktop login name
+        required: true
+        type: string
+        default: RDP
+      web_username:
+        description: Selkies HTTP username
+        required: true
+        type: string
+        default: wfs
+      apps_bundle:
+        description: Apps bundle
+        required: true
+        type: choice
+        default: none
+        options:
+        - none
+        - developer
+        - office
+        - media
+        - all
+      remote_access:
+        description: Choose the session transport
+        required: true
+        type: choice
+        default: rdp
+        options:
+        - rdp
+        - novnc
+        - both
+      rdp_password_mode:
+        description: Rdp password mode
+        required: true
+        type: choice
+        default: same_from_secret
+        options: &id001
+        - same_from_secret
+        - random_each_run
+      vnc_password_mode:
+        description: Vnc password mode
+        required: true
+        type: choice
+        default: same_from_secret
+        options: *id001
+      install_artcraft:
+        description: Attempt the verified ArtCraft Launcher release asset
+        required: true
+        type: boolean
+        default: false
+      ide_choice:
+        description: Ide choice
+        required: true
+        type: choice
+        default: none
+        options:
+        - none
+        - antigravity
+        - vscode
+        - both
+      editor_choice:
+        description: Editor choice
+        required: true
+        type: choice
+        default: none
+        options:
+        - none
+        - capcut
+        - shotcut
+        - both
+      metatrader_choice:
+        description: Optional MT4 Exness / MT5 terminal (no broker login)
+        required: true
+        type: choice
+        default: none
+        options:
+        - none
+        - mt4
+        - mt5
+        - both
+      router_choice:
+        description: Router choice
+        required: true
+        type: choice
+        default: none
+        options:
+        - none
+        - 9router
+        - omniroute
+        - both
+      coding_agent_choice:
+        description: Coding agent choice
+        required: true
+        type: choice
+        default: none
+        options:
+        - none
+        - codex
+        - claude
+        - both
+      ai_agent_choice:
+        description: both = Hermes and OpenClaw; all also includes OpenCode
+        required: true
+        type: choice
+        default: none
+        options:
+        - none
+        - hermes
+        - openclaw
+        - opencode
+        - both
+        - all
+permissions:
+  contents: read
+concurrency:
+  group: ${{ inputs.hostname_mode == 'same_each_run' && format('wfs-node-{0}', inputs.tailscale_hostname) || format('wfs-run-{0}', github.run_id) }}
+  cancel-in-progress: false
+jobs:
+  workspace:
+    runs-on: ${{ inputs.runner_type == 'self-hosted' && fromJSON('["self-hosted","wfs-linux"]') || 'ubuntu-24.04' }}
+    timeout-minutes: 360
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Install Python toolchain
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - name: Run native validation only
+      if: ${{ inputs.validation_only }}
+      timeout-minutes: 8
+      shell: bash
+      run: |
+        python3 -m pip install --disable-pip-version-check -r tests/requirements.txt
+        python3 tests/test_workspaces.py
+        python3 windows/test_novnc.py
+        python3 tests/linux_mock.py
+        for f in shared/*.sh linux/*.sh macos/*.sh; do bash -n "$f"; done
+    - name: Validate choices and initialize run state
+      id: preflight
+      shell: bash
+      env:
+        WFS_DEDICATED_RUNNER: ${{ vars.WFS_DEDICATED_RUNNER }}
+      run: |
+        if [[ "$RUNNER_ENVIRONMENT" == self-hosted && "$WFS_DEDICATED_RUNNER" != true ]]; then
+          echo "Use a dedicated Linux lab runner and set WFS_DEDICATED_RUNNER=true"; exit 1
+        fi
+        python3 shared/workspace.py init linux
+      if: ${{ !inputs.validation_only }}
+    - name: Join private tailnet (GitHub-hosted)
+      if: ${{ !inputs.validation_only && inputs.runner_type == 'github' }}
+      uses: tailscale/github-action@v4
+      timeout-minutes: 5
+      with:
+        authkey: ${{ secrets.TAILSCALE_AUTH_KEY || secrets.TAILSCALE_AUTHKEY }}
+        hostname: ${{ env.WFS_HOSTNAME }}
+        args: --accept-dns=false
+        timeout: 45s
+        retry: '2'
+    - name: Prepare and probe remote protocols
+      id: remote
+      shell: bash
+      timeout-minutes: 22
+      env:
+        RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+        VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+        WFS_IGOS_ISO: ${{ vars.WFS_IGOS_ISO }}
+      run: bash linux/workspace.sh start
+      if: ${{ !inputs.validation_only }}
+    - name: Connection Summary (before optional apps)
+      if: ${{ always() && steps.preflight.outcome == 'success' }}
+      shell: bash
+      run: python3 shared/workspace.py summary
+    - name: Install apps with bounded independent attempts
+      if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
+      continue-on-error: true
+      timeout-minutes: 29
+      id: apps
+      shell: bash
+      run: bash linux/apps-host.sh
+    - name: Publish application results
+      if: ${{ !cancelled() && steps.remote.outcome == 'success' }}
+      shell: bash
+      continue-on-error: true
+      env:
+        WFS_APP_OUTCOME: ${{ steps.apps.outcome }}
+      run: |
+        if [[ "$WFS_APP_OUTCOME" == failure ]]; then python3 shared/workspace.py status Apps warning 'Some optional work did not complete'; fi
+        python3 shared/workspace.py summary
+    - name: Remote ready — hold until requested deadline
+      if: ${{ !cancelled() && steps.remote.outcome == 'success' }}
+      shell: bash
+      run: python3 shared/workspace.py hold
+    - name: Close private listeners and temporary resources
+      if: ${{ always() && steps.preflight.outcome == 'success' }}
+      shell: bash
+      timeout-minutes: 3
+      run: bash linux/workspace.sh cleanup
