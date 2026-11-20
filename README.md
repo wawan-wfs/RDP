@@ -41,3 +41,15 @@ Referensi: [Windows RDP melalui Tailscale](https://tailscale.com/docs/solutions/
 - Tidak ada bukti pengujian ulang koneksi Windows, Linux, atau macOS pada repo baru.
 - Tidak ada public tunnel atau Cloudflare keep-alive yang dipulihkan.
 - File workflow lama dan daftar aplikasi lengkap tidak tersedia dalam bahan yang berhasil ditemukan.
+
+## Skrip diagnostik hasil rekonstruksi
+
+Skrip berikut hanya membaca konfigurasi dan status. Jalankan langsung pada host yang sesuai.
+
+| Platform | Perintah |
+| --- | --- |
+| Windows | `powershell -NoProfile -File .\windows\diagnose-rdp.ps1` |
+| Linux | `bash linux/diagnose-xrdp.sh RDP` (ganti dengan `rdp` jika akun itu yang dibuat) |
+| macOS | `bash macos/diagnose-desktop-session.sh wfsremote`, `bash macos/diagnose-display.sh`, dan `bash macos/diagnose-vnc.sh wfsremote` |
+
+Lihat [catatan pemulihan](docs/recovery-notes.md) untuk bukti historis dan langkah uji yang masih diperlukan.
