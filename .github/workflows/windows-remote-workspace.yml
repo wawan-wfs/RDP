@@ -39,7 +39,7 @@ on:
         - same_each_run
         - unique_each_run
       windows_version:
-        description: Windows version
+        description: Hosted Windows image (ARM64 + browser access automatically uses Windows 2025 x64)
         required: true
         type: choice
         default: windows-2025
@@ -63,7 +63,7 @@ on:
         type: string
         default: RDP
       remote_access:
-        description: Choose the session transport
+        description: RDP native, browser desktop (noVNC), or both
         required: true
         type: choice
         default: rdp
@@ -159,38 +159,48 @@ concurrency:
   cancel-in-progress: false
 jobs:
   workspace:
-    runs-on: ${{ inputs.runner_type == 'self-hosted' && fromJSON('["self-hosted","wfs-windows"]') || inputs.windows_version }}
+    name: Windows workspace · ${{ inputs.validation_only && 'Validation' || inputs.remote_access }}
+    # noVNC needs the x64 TightVNC service. Resolve the hosted image before scheduling.
+    runs-on: ${{ inputs.runner_type == 'self-hosted' && fromJSON('["self-hosted","wfs-windows"]') || (inputs.windows_version == 'windows-11-arm' && inputs.remote_access != 'rdp' && 'windows-2025') || inputs.windows_version }}
     timeout-minutes: 360
+    env:
+      WFS_WINDOWS_LOG: '1'
+      PYTHONUTF8: '1'
     steps:
-    - name: Checkout source
+    - name: '01 · Source checkout'
+      id: checkout
       uses: actions/checkout@v4
       with:
         persist-credentials: false
-    - name: Install Python toolchain
+    - name: '02 · Python toolchain'
+      id: python
       uses: actions/setup-python@v6
       with:
         python-version: '3.12'
-    - name: Run native validation only
-      if: ${{ inputs.validation_only }}
-      timeout-minutes: 8
-      shell: pwsh
-      run: |
-        python -m pip install --disable-pip-version-check -r tests/requirements.txt
-        python tests/test_workspaces.py
-        python windows/test_novnc.py
-        ./tests/verify-windows.ps1
-    - name: Validate choices and initialize run state
+    - name: '03 · Configure workspace'
       id: preflight
       shell: pwsh
       env:
         WFS_DEDICATED_RUNNER: ${{ vars.WFS_DEDICATED_RUNNER }}
+        WFS_VALIDATE_ONLY: ${{ inputs.validation_only }}
       run: |
-        if ($env:RUNNER_ENVIRONMENT -eq 'self-hosted' -and $env:WFS_DEDICATED_RUNNER -ne 'true') {
+        if ($env:WFS_VALIDATE_ONLY -ne 'true' -and $env:RUNNER_ENVIRONMENT -eq 'self-hosted' -and $env:WFS_DEDICATED_RUNNER -ne 'true') {
           throw 'Use an isolated dedicated Windows lab runner and set WFS_DEDICATED_RUNNER=true'
         }
         python shared/workspace.py init windows
-      if: ${{ !inputs.validation_only }}
-    - name: Join private tailnet (GitHub-hosted)
+    - name: '04 · Native checks (validation only)'
+      id: verify
+      if: ${{ inputs.validation_only }}
+      timeout-minutes: 8
+      shell: pwsh
+      run: |
+        $PSNativeCommandUseErrorActionPreference = $true
+        python -m pip install --disable-pip-version-check -r tests/requirements.txt
+        python tests/test_workspaces.py
+        python windows/test_novnc.py
+        ./tests/verify-windows.ps1
+    - name: '05 · Join private tailnet (hosted runner)'
+      id: tailnet
       if: ${{ !inputs.validation_only && inputs.runner_type == 'github' }}
       uses: tailscale/github-action@v4
       timeout-minutes: 5
@@ -200,7 +210,7 @@ jobs:
         args: --accept-dns=false --unattended
         timeout: 45s
         retry: '2'
-    - name: Prepare and probe remote protocols
+    - name: '06 · Start and verify RDP / noVNC'
       id: remote
       shell: pwsh
       timeout-minutes: 22
@@ -209,44 +219,72 @@ jobs:
         VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
       run: ./windows/remote.ps1 -Phase start
       if: ${{ !inputs.validation_only }}
-    - name: Connection Summary (before optional apps)
-      if: ${{ always() && steps.preflight.outcome == 'success' }}
+    - name: '07 · Publish connection card and setup timeline'
+      if: ${{ !cancelled() }}
       shell: pwsh
-      run: python shared/workspace.py summary
-    - name: Install apps with bounded independent attempts
+      continue-on-error: true
+      env:
+        WFS_CHECKOUT: ${{ steps.checkout.outcome }}
+        WFS_PYTHON: ${{ steps.python.outcome }}
+        WFS_PREFLIGHT: ${{ steps.preflight.outcome }}
+        WFS_VALIDATION: ${{ steps.verify.outcome }}
+        WFS_TAILNET: ${{ steps.tailnet.outcome }}
+        WFS_REMOTE: ${{ steps.remote.outcome }}
+      run: |
+        if ($env:WFS_CHECKOUT -eq 'success' -and $env:WFS_PYTHON -eq 'success') {
+          python -m windows.report access
+        } else {
+          @"
+        # WFS Windows Workspace
+
+        **Setup did not reach preflight.**
+
+        | Stage | Result |
+        | --- | --- |
+        | Source checkout | $env:WFS_CHECKOUT |
+        | Python toolchain | $env:WFS_PYTHON |
+        "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+        }
+    - name: '08 · Install applications'
       if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
       continue-on-error: true
       timeout-minutes: 44
       id: apps
       shell: pwsh
       run: |
-        ./windows/install-apps.ps1 -Group base
+        Write-Host '::group::WFS / Base desktop applications'
+        try { ./windows/install-apps.ps1 -Group base } finally { Write-Host '::endgroup::' }
         $job = Start-Job -ArgumentList (Get-Location).Path -ScriptBlock { param($root) Set-Location $root; ./windows/install-apps.ps1 -Group cli }
+        Write-Host '::group::WFS / Desktop and media applications'
         try {
           ./windows/install-apps.ps1 -Group gui
         } finally {
-          $done = Wait-Job $job -Timeout 1200
-          Receive-Job $job -ErrorAction Continue
-          if (-not $done -or $job.State -ne 'Completed') {
-            & python shared/workspace.py status 'Windows CLI worker' warning 'See installer step; remote access remains active'
+          Write-Host '::endgroup::'
+          Write-Host '::group::WFS / Command-line tools and AI agents'
+          try {
+            $done = Wait-Job $job -Timeout 1200
+            Receive-Job $job -ErrorAction Continue
+            if (-not $done -or $job.State -ne 'Completed') {
+              & python shared/workspace.py status 'Windows CLI worker' warning 'See installer step; remote access remains active'
+            }
+          } finally {
+            Remove-Job -Job $job -Force
+            Write-Host '::endgroup::'
           }
-          Remove-Job -Job $job -Force
         }
-    - name: Publish application results
+    - name: '09 · Publish application results'
       if: ${{ !cancelled() && steps.remote.outcome == 'success' }}
       shell: pwsh
       continue-on-error: true
       env:
         WFS_APP_OUTCOME: ${{ steps.apps.outcome }}
-      run: |
-        if ($env:WFS_APP_OUTCOME -eq 'failure') { python shared/workspace.py status 'Apps' warning 'Some optional work did not complete' }
-        python shared/workspace.py summary
-    - name: Remote ready — hold until requested deadline
+      run: python -m windows.report apps
+    - name: '10 · Keep verified endpoints available'
       if: ${{ !cancelled() && steps.remote.outcome == 'success' }}
       shell: pwsh
       run: python shared/workspace.py hold
-    - name: Close private listeners and temporary resources
-      if: ${{ always() && steps.preflight.outcome == 'success' }}
+    - name: '11 · Close listeners and clean up'
+      if: ${{ always() && !inputs.validation_only && steps.preflight.outcome == 'success' }}
       shell: pwsh
       timeout-minutes: 3
       run: ./windows/remote.ps1 -Phase cleanup

@@ -44,11 +44,13 @@ Hostname default `rdp-runner` dengan `same_each_run`. Jika ingin sesi paralel, p
 ## Windows
 
 - `rdp` memakai **TCP 3389**, NLA, dan akun standar sementara `RDP`. Jalankan `mstsc /v:IP-TAILSCALE:3389` dari PC Windows. `/f` membuka mode layar penuh.
-- `novnc` memakai TightVNC loopback plus bridge Python/noVNC. Pilih x64. Default **HTTP privat port 6082** melalui Tailscale, atau pilih `tailscale_https` untuk mencoba HTTPS port 443 lalu fallback TCP jika HTTPS tidak tersedia. Windows noVNC memakai 8 karakter ASCII pertama dari secret. Untuk mode ini, gunakan password unik.
+- `novnc` memakai TightVNC loopback plus bridge Python/noVNC di x64. Default **HTTP privat port 6082** melalui Tailscale, atau pilih `tailscale_https` untuk mencoba HTTPS port 443 lalu fallback TCP jika HTTPS tidak tersedia. Windows noVNC memakai 8 karakter ASCII pertama dari secret. Untuk mode ini, gunakan password unik.
 - `both` menguji jalur RDP dan noVNC secara terpisah. Jika salah satu gagal, yang lulus tetap berjalan. Desktop console noVNC mungkin berbeda dari sesi RDP. Aktifkan scaling dengan URL Summary dan gunakan tombol fullscreen atau F11.
-- Opsi runner mencakup 2025, 2022, latest, ARM64 untuk RDP, dan 2025 VS2026 sesuai ketersediaan runner akun.
+- Opsi runner mencakup 2025, 2022, latest, ARM64 untuk RDP, dan 2025 VS2026 sesuai ketersediaan runner akun. Pada GitHub-hosted, `windows-11-arm` + `novnc` atau `both` otomatis memakai **Windows Server 2025 x64** agar opsi akses yang dipilih tetap tersedia. Pergantian image tercatat di log dan Summary. Self-hosted ARM64 tetap pilih `rdp` atau gunakan host x64 untuk noVNC.
 - Chrome, WinRAR, Node.js LTS, VS Code, Antigravity, CapCut, Shotcut, ArtCraft Launcher, MT4 Exness, MT5, 9Router, OmniRoute, Codex, Claude Code, Hermes, OpenClaw, dan OpenCode tersedia sebagai default atau pilihan. Policy **Cookie-Editor + GoFullPage** diterapkan, lalu cek ekstensi aktual di profil browser.
 - Chrome/MSI memiliki jalur fallback vendor. Installer tertentu yang butuh profil user disiapkan untuk login RDP atau shortcut. **Pending interactive** berarti belum terbukti terpasang. Tidak ada login otomatis ke broker atau provider AI.
+
+Di tab **Summary**, kartu koneksi muncul sebelum pemasangan aplikasi, termasuk perintah RDP layar penuh, tautan browser privat, dan hasil tiap pemeriksaan. Jika setup gagal, **Setup timeline** menandai tahap yang gagal, termasuk saat preflight belum menulis konfigurasi. Hasil aplikasi tampil terpisah agar timeout installer tidak disalahartikan sebagai kegagalan koneksi.
 
 ## Linux
 

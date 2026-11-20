@@ -1,5 +1,6 @@
 """Pure validation, connection status, deadlines and diagnostics for WFS."""
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import html
@@ -10,6 +11,7 @@ from pathlib import Path
 import re
 import socket
 import sys
+import tempfile
 import time
 
 APP_INPUTS = {
@@ -21,6 +23,7 @@ APP_INPUTS = {
     "ai_agent_choice": ("none", "hermes", "openclaw", "opencode", "both", "all"),
 }
 WINDOWS = ("windows-2025", "windows-latest", "windows-2022", "windows-11-arm", "windows-2025-vs2026")
+WINDOWS_BROWSER_FALLBACK = "windows-2025"
 MACS = ("macos-15", "macos-26", "macos-15-intel", "macos-26-intel")
 TAILNET = ipaddress.ip_network("100.64.0.0/10")
 STATE = {"ready", "configured", "failed", "timed out", "installed", "attempted",
@@ -39,7 +42,7 @@ def pick(d, key, choices, default):
     return v
 
 
-def config(os_name, d, run_id="local", attempt="1"):
+def config(os_name, d, run_id="local", attempt="1", runner_arch=""):
     defaults = {"remote_access": {"windows": "rdp", "linux": "rdp", "macos": "both"}[os_name]}
     modes = ("ssh", "vnc", "both") if os_name == "macos" else ("rdp", "novnc", "both")
     c = {
@@ -71,8 +74,15 @@ def config(os_name, d, run_id="local", attempt="1"):
     if os_name == "windows":
         c["windows_version"] = pick(d, "windows_version", WINDOWS, WINDOWS[0])
         c["novnc_transport"] = pick(d, "novnc_transport", ("tailscale_tcp", "tailscale_https"), "tailscale_tcp")
-        if c["windows_version"] == "windows-11-arm" and c["remote_access"] != "rdp":
-            raise ValueError("Windows ARM64 supports native RDP only in this package")
+        browser = c["remote_access"] in {"novnc", "both"}
+        hosted = c["runner_type"] == "github"
+        c["windows_fallback"] = hosted and browser and c["windows_version"] == "windows-11-arm"
+        c["windows_effective_runner"] = (
+            WINDOWS_BROWSER_FALLBACK if c["windows_fallback"] else c["windows_version"]
+        ) if hosted else "self-hosted / wfs-windows"
+        c["runner_arch"] = runner_arch.upper() if runner_arch.upper() in {"ARM64", "X64", "X86", "ARM"} else ""
+        if browser and c["runner_arch"] and c["runner_arch"] != "X64":
+            raise ValueError("Windows noVNC needs an x64 runner. Select RDP only or use an x64 Windows runner.")
     if os_name == "linux":
         c["distro"] = pick(d, "distro", ("ubuntu", "debian", "fedora", "arch", "alpine", "igos-nusantara"), "ubuntu")
         c["desktop"] = pick(d, "desktop", ("kde", "xfce", "mate", "i3", "lxqt"), "kde")
@@ -135,6 +145,15 @@ def public_error(err):
     print(f"WFS: {err}" if isinstance(err, ValueError) else f"WFS: {type(err).__name__}; see step diagnostics.", file=sys.stderr)
 
 
+def windows_log(component, state, detail):
+    level = {"ready": "PASS", "installed": "PASS", "failed": "FAIL", "timed out": "WARN",
+             "warning": "WARN", "unavailable": "WARN", "unsupported": "SKIP", "skipped": "SKIP"}.get(state, "INFO")
+    stamp = datetime.now(timezone.utc).strftime("%H:%M:%SZ")
+    line = f"[{stamp}] [{level:4}] {component} | {detail}"
+    # Native Windows stdout may still use a legacy code page when redirected.
+    print(line.encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8"), flush=True)
+
+
 def main(args=None):
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -152,13 +171,27 @@ def main(args=None):
     s = state_dir()
     if u.cmd == "init":
         event = Path(os.environ["GITHUB_EVENT_PATH"])
-        cfg = config(u.platform, json.loads(event.read_text()).get("inputs") or {},
-                     os.environ["GITHUB_RUN_ID"], os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
+        try:
+            cfg = config(u.platform, json.loads(event.read_text(encoding="utf-8-sig")).get("inputs") or {},
+                         os.environ["GITHUB_RUN_ID"], os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                         os.environ.get("RUNNER_ARCH", ""))
+        except ValueError as err:
+            if u.platform == "windows":
+                message = str(err).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                print(f"::error title=WFS workspace configuration::{message}", flush=True)
+            raise
         s.mkdir(mode=0o700, exist_ok=False)
         cfg["started"] = int(time.time())
         (s / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
         with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
             f.write(f"WFS_STATE={s}\nWFS_HOSTNAME={cfg['hostname']}\n")
+        if u.platform == "windows":
+            print("::group::WFS / Windows configuration", flush=True)
+            windows_log("Runner", "configured", f"{cfg['windows_effective_runner']} / {cfg['runner_arch'] or 'architecture not reported'}")
+            windows_log("Session", "configured", f"{cfg['remote_access']} | {cfg['hostname']} | up to {cfg['duration_hours']}h")
+            print("::endgroup::", flush=True)
+            if cfg["windows_fallback"]:
+                print("::notice title=WFS runner compatibility::Windows 11 ARM64 was requested with noVNC. This run uses Windows Server 2025 x64 to keep the selected access mode.", flush=True)
     elif u.cmd == "path":
         print(s)
     elif u.cmd == "get":
@@ -174,8 +207,18 @@ def main(args=None):
         row = [u.name, u.state, u.detail]
         if any(re.search(r"[\x00-\x1f\x7f]", field) for field in row) or len(u.detail) > 500:
             raise ValueError("Invalid status message")
-        with (s / "status.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        if os.environ.get("WFS_WINDOWS_LOG") == "1":
+            # GUI and CLI installers run in parallel. Separate atomic records avoid shared append races.
+            records = s / "status"
+            records.mkdir(exist_ok=True)
+            dest = records / (hashlib.sha256(u.name.encode()).hexdigest() + ".json")
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=records, delete=False) as f:
+                f.write(json.dumps(row, ensure_ascii=False))
+            Path(f.name).replace(dest)
+            windows_log(*row)
+        else:
+            with (s / "status.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
     elif u.cmd == "summary":
         if s.is_dir():
             ledger = s / "status.jsonl"
@@ -202,7 +245,11 @@ def main(args=None):
         c = read_config()
         # Leave time for always() cleanup within the 360-minute Actions job.
         end = min(time.time() + int(c["duration_hours"]) * 3600, c["started"] + 345 * 60)
-        print("Workspace ready; use the job Summary. Cancel the workflow to stop early.", flush=True)
+        if c["platform"] == "windows":
+            deadline = datetime.fromtimestamp(end, timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+            windows_log("Session", "ready", f"Closes by {deadline} | connection details in Summary | cancel the run to stop early")
+        else:
+            print("Workspace ready; use the job Summary. Cancel the workflow to stop early.", flush=True)
         while time.time() < end:
             time.sleep(min(45, max(0, end-time.time())))
     return 0

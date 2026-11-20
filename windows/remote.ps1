@@ -85,6 +85,7 @@ $ip = & python shared/workspace.py ip $rawIp
 if ($LASTEXITCODE -ne 0 -or -not $ip) { throw 'No valid tailnet IPv4' }
 Status 'Tailnet' 'ready' "IPv4 $ip"
 if ($c.remote_access -in @('rdp','both')) {
+  Write-Host '::group::WFS / Native RDP - NLA and private listener'
   try {
     if ((Get-NetFirewallProfile | Where-Object { -not $_.Enabled }).Count) { throw 'Windows Firewall must be enabled for each profile' }
     if ((Get-ItemProperty $listener).PortNumber -ne 3389) { throw 'Expected native RDP listener at 3389' }
@@ -124,11 +125,14 @@ if ($c.remote_access -in @('rdp','both')) {
   } catch {
     Status 'Windows RDP' 'failed' 'See the remote setup step'
     Write-Warning ("RDP setup: " + $_.Exception.Message)
+  } finally {
+    Write-Host '::endgroup::'
   }
 }
 if ($c.remote_access -in @('novnc','both')) {
+  Write-Host '::group::WFS / Browser desktop - TightVNC, WebSocket and tailnet'
   try {
-    if ($env:RUNNER_ARCH -eq 'ARM64') { throw 'TightVNC browser mode is x64 only' }
+    if ($env:RUNNER_ARCH -and $env:RUNNER_ARCH -ne 'X64') { throw 'TightVNC browser mode is x64 only' }
     if (Get-Service tvnserver -ErrorAction SilentlyContinue) { throw 'Existing TightVNC service will not be modified' }
     $pwd = Secret web
     $msi = "$state/tightvnc.msi"
@@ -185,6 +189,7 @@ if ($c.remote_access -in @('novnc','both')) {
     Status 'Windows noVNC' 'ready' "$url; console session; VNC password required"
     Set-Content "$state/novnc-ready" 'yes'
   } catch { Status 'Windows noVNC' 'failed' 'See the remote setup step'; Write-Warning ("noVNC setup: " + $_.Exception.Message) }
+  finally { Write-Host '::endgroup::' }
 }
 if (-not ((Test-Path "$state/rdp-ready") -or (Test-Path "$state/novnc-ready"))) { throw 'No requested remote endpoint passed its readiness checks' }
 $global:LASTEXITCODE = 0
