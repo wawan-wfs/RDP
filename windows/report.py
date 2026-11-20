@@ -24,7 +24,7 @@ STAGES = (
     ("Python toolchain", "WFS_PYTHON", "Check setup-python and runner architecture."),
     ("Configuration", "WFS_PREFLIGHT", "Review the selected runner, access mode, and job annotation."),
     ("Native validation", "WFS_VALIDATION", "Open the validation step for the failing test."),
-    ("Tailscale join", "WFS_TAILNET", "Verify the Tailscale auth key and its tag policy."),
+    ("Tailscale join", "WFS_TAILNET", "Open step 05 for the exact error. Check the auth key only if the log reports an authentication problem."),
     ("Remote readiness", "WFS_REMOTE", "Open the protocol setup step for the RDP or noVNC error."),
 )
 
@@ -73,24 +73,32 @@ def credential(cfg, role):
     return f"`{secret}`" if role == "rdp" else f"first eight characters of `{secret}`"
 
 
-def access_summary(cfg, rows, outcomes):
+def access_state(rows, outcomes):
     by_name = {name: (result, detail) for name, result, detail in rows if name in REMOTE}
     has_ready = any(by_name.get(name, ("", ""))[0] == "ready" for name in ("Windows RDP", "Windows noVNC"))
     missed_path = any(by_name.get(name, ("", ""))[0] == "failed" for name in ("Windows RDP", "Windows noVNC"))
     failure = any(outcomes.get(key) == "failure" for _, key, _ in STAGES)
     if failure:
-        headline = "❌ Setup failed"
-    elif has_ready:
-        headline = "⚠️ One access path is ready" if missed_path else "✅ Ready to connect"
-    elif outcomes.get("WFS_VALIDATION") == "success":
-        headline = "✅ Native validation passed · no remote services started"
-    else:
-        headline = "➖ No endpoint verified"
-    lines = ["# 🖥️ WFS Windows Workspace", "", f"> **{headline}**", ""]
+        failed_at = next(name for name, key, _ in STAGES if outcomes.get(key) == "failure")
+        return "CAUTION", "❌ Setup failed", f"Stopped at **{failed_at}**. Open the setup timeline for the next step."
+    if has_ready:
+        return ("WARNING", "⚠️ One access path is ready", "Use the verified endpoint. The other access path did not start.") if missed_path else (
+            "TIP", "✅ Ready to connect", "The local protocol checks passed. Connect from an authorized Tailscale device.")
+    if outcomes.get("WFS_VALIDATION") == "success":
+        return "TIP", "✅ Native validation passed · no remote services started", "This was a validation-only run."
+    return "NOTE", "➖ No endpoint verified", "Check the setup timeline for details."
+
+
+def access_summary(cfg, rows, outcomes):
+    by_name = {name: (result, detail) for name, result, detail in rows if name in REMOTE}
+    has_ready = any(by_name.get(name, ("", ""))[0] == "ready" for name in ("Windows RDP", "Windows noVNC"))
+    kind, headline, hint = access_state(rows, outcomes)
+    lines = ["# WFS / Windows Workspace", "", "**REMOTE OPERATIONS** · TAILNET PRIVATE", "", f"> [!{kind}]", f"> **{headline}**", f"> {hint}", ""]
     if cfg:
         lines += [
-            f"**Runner** {md(cfg['windows_effective_runner'])} · {md(cfg['runner_arch'] or 'unknown architecture')}  ",
-            f"**Access** {md(cfg['remote_access'].upper())} · **Node requested** `{md(cfg['hostname'])}` · **Session cap** {md(cfg['duration_hours'])} h",
+            "| Runner image | Access mode | Tailnet hostname | Session cap |",
+            "| --- | --- | --- | --- |",
+            f"| `{md(cfg['windows_effective_runner'])}` · {md(cfg['runner_arch'] or 'unknown')} | **{md(cfg['remote_access'].upper())}** | `{md(cfg['hostname'])}` | {md(cfg['duration_hours'])} h |",
             "",
         ]
         if cfg["windows_fallback"]:
@@ -121,7 +129,9 @@ def access_summary(cfg, rows, outcomes):
                 state, detail = by_name[name]
                 lines.append(f"| {name} | {ICONS.get(state, md(state))} | {md(detail)} |")
         lines.append("")
-    return "\n".join(lines + ["## 🧭 Setup timeline", "", *steps_table(outcomes, cfg), "", ""])
+    lines += ["## 🧭 Setup timeline", "", *steps_table(outcomes, cfg), "", "---", "",
+              "**Visual report** · Look for `wfs-windows-connection` under **Artifacts** for the standalone dashboard.", "", ""]
+    return "\n".join(lines)
 
 
 def apps_summary(rows, outcome):
@@ -157,6 +167,16 @@ def main(section):
         windows_log("Application report", "configured", "See job Summary for the per-app results")
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as f:
         f.write(report)
+    if section == "access" and os.environ.get("GITHUB_OUTPUT"):
+        from windows.dashboard import render
+        run = os.environ.get("GITHUB_RUN_ID", "")
+        attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+        if not re.fullmatch(r"[0-9]+", run) or not re.fullmatch(r"[0-9]+", attempt):
+            raise ValueError("Invalid dashboard run identity")
+        output = Path(os.environ["RUNNER_TEMP"]) / f"wfs-connection-{run}-{attempt}.html"
+        output.write_text(render(cfg, rows, os.environ, run, attempt), encoding="utf-8")
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as f:
+            f.write("dashboard=true\n")
 
 
 if __name__ == "__main__":

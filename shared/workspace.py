@@ -149,7 +149,10 @@ def windows_log(component, state, detail):
     level = {"ready": "PASS", "installed": "PASS", "failed": "FAIL", "timed out": "WARN",
              "warning": "WARN", "unavailable": "WARN", "unsupported": "SKIP", "skipped": "SKIP"}.get(state, "INFO")
     stamp = datetime.now(timezone.utc).strftime("%H:%M:%SZ")
-    line = f"[{stamp}] [{level:4}] {component} | {detail}"
+    line = f"[{stamp}] [WFS/{level}] {component} | {detail}"
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        color = {"PASS": 32, "FAIL": 31, "WARN": 33, "SKIP": 90, "INFO": 36}[level]
+        line = f"\x1b[1;{color}m{line}\x1b[0m"
     # Native Windows stdout may still use a legacy code page when redirected.
     print(line.encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8"), flush=True)
 

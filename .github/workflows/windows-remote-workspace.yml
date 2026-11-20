@@ -202,12 +202,13 @@ jobs:
     - name: '05 · Join private tailnet (hosted runner)'
       id: tailnet
       if: ${{ !inputs.validation_only && inputs.runner_type == 'github' }}
-      uses: tailscale/github-action@v4
+      uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4
       timeout-minutes: 5
       with:
         authkey: ${{ secrets.TAILSCALE_AUTH_KEY || secrets.TAILSCALE_AUTHKEY }}
         hostname: ${{ env.WFS_HOSTNAME }}
-        args: --accept-dns=false --unattended
+        # The Windows backend of tailscale/github-action adds --unattended itself.
+        args: --accept-dns=false
         timeout: 45s
         retry: '2'
     - name: '06 · Start and verify RDP / noVNC'
@@ -220,6 +221,7 @@ jobs:
       run: ./windows/remote.ps1 -Phase start
       if: ${{ !inputs.validation_only }}
     - name: '07 · Publish connection card and setup timeline'
+      id: connection_report
       if: ${{ !cancelled() }}
       shell: pwsh
       continue-on-error: true
@@ -245,6 +247,15 @@ jobs:
         | Python toolchain | $env:WFS_PYTHON |
         "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
         }
+    - name: '07b · Attach WFS connection dashboard'
+      if: ${{ !cancelled() && steps.connection_report.outputs.dashboard == 'true' }}
+      uses: actions/upload-artifact@v6
+      continue-on-error: true
+      with:
+        name: wfs-windows-connection-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/wfs-connection-${{ github.run_id }}-${{ github.run_attempt }}.html
+        retention-days: 7
+        if-no-files-found: error
     - name: '08 · Install applications'
       if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
       continue-on-error: true

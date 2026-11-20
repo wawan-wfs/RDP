@@ -18,7 +18,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from shared import bounded, rdp_probe, rfb_probe, tailnet_tcp, workspace
-from windows import report
+from windows import dashboard, report
 
 
 def load_script(name, file):
@@ -86,14 +86,17 @@ class Configuration(unittest.TestCase):
             self.assertIn("::notice title=WFS runner compatibility::", p.stdout)
             self.assertIn("windows-2025 / X64", p.stdout)
             self.assertEqual(json.loads((root / "wfs-remote-101-1/config.json").read_text())["remote_access"], "both")
-            env |= {"WFS_WINDOWS_LOG": "1", "GITHUB_STEP_SUMMARY": str(root / "summary"), "WFS_REMOTE": "success"}
+            env |= {"WFS_WINDOWS_LOG": "1", "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                    "GITHUB_OUTPUT": str(root / "output"), "WFS_REMOTE": "success"}
             p = subprocess.run([sys.executable, "shared/workspace.py", "status", "Windows RDP", "ready",
                                 "mstsc /v:100.64.0.42:3389; user RDP; NLA enabled"], cwd=ROOT, env=env, capture_output=True, text=True)
             self.assertEqual(p.returncode, 0, p.stderr)
-            self.assertIn("[PASS] Windows RDP", p.stdout)
+            self.assertIn("[WFS/PASS] Windows RDP", p.stdout)
             p = subprocess.run([sys.executable, "-m", "windows.report", "access"], cwd=ROOT, env=env, capture_output=True, text=True)
             self.assertEqual(p.returncode, 0, p.stderr)
             self.assertIn("mstsc /v:100.64.0.42:3389 /f", (root / "summary").read_text(encoding="utf-8"))
+            self.assertIn("mstsc /v:100.64.0.42:3389 /f", (root / "wfs-connection-101-1.html").read_text(encoding="utf-8"))
+            self.assertEqual((root / "output").read_text(), "dashboard=true\n")
 
     def test_password_limits_and_legacy_hmac(self):
         secret = "ThisIsAnExample#42"
@@ -139,6 +142,14 @@ class Configuration(unittest.TestCase):
                 self.assertEqual(summary["if"], "\u0024{{ !cancelled() }}")
                 self.assertLess(job["steps"].index(summary), ids.index("apps"))
                 self.assertLess(ids.index("preflight"), ids.index("verify"))
+                tailnet = next(x for x in job["steps"] if x.get("id") == "tailnet")
+                flags = tailnet["with"]["args"].split()
+                self.assertRegex(tailnet["uses"], r"^tailscale/github-action@[0-9a-f]{40}$")
+                self.assertEqual(flags, ["--accept-dns=false"])
+                self.assertNotIn("--unattended", [flag.partition("=")[0] for flag in flags])
+                archive = next(x for x in job["steps"] if x.get("uses", "").startswith("actions/upload-artifact@"))
+                self.assertIn("steps.connection_report.outputs.dashboard", archive["if"])
+                self.assertEqual(archive["continue-on-error"], "true")
             for x in job["steps"]:
                 self.assertNotRegex(x.get("run", ""), r"\$\{\{\s*(inputs|secrets)\.")
             for v in controls.values():
@@ -167,6 +178,20 @@ class WindowsReports(unittest.TestCase):
         self.assertIn("| Tailscale join | ➖ Skipped |", card)
         self.assertNotIn("NeverLogThis!", card)
         self.assertNotIn("## 🔗 Connect", card)
+        self.assertIn("> [!CAUTION]", card)
+
+    def test_dashboard_tailnet_failure_and_safe_snapshot(self):
+        env = {"WFS_PREFLIGHT": "success", "WFS_TAILNET": "failure", "WFS_REMOTE": "skipped",
+               "TAILSCALE_AUTH_KEY": "FixtureDoNotRender", "GITHUB_REPOSITORY": "wawan-wfs/RDP"}
+        cfg = workspace.config("windows", {}, runner_arch="X64")
+        card = dashboard.render(cfg, [], env, "10", "1")
+        self.assertIn("<h1>Windows Workspace</h1>", card)
+        self.assertIn("Stopped at Tailscale join", card)
+        self.assertIn("No connection published", card)
+        self.assertIn("https://github.com/wawan-wfs/RDP/actions/runs/10", card)
+        self.assertNotIn("FixtureDoNotRender", card)
+        self.assertNotIn("<script", card)
+        self.assertNotIn("http://100.", card)
 
     def test_connection_card_preserves_partial_success_and_private_url(self):
         cfg = workspace.config("windows", {"windows_version": "windows-11-arm", "remote_access": "both"}, runner_arch="X64")

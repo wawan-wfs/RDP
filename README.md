@@ -52,6 +52,8 @@ Hostname default `rdp-runner` dengan `same_each_run`. Jika ingin sesi paralel, p
 
 Di tab **Summary**, kartu koneksi muncul sebelum pemasangan aplikasi, termasuk perintah RDP layar penuh, tautan browser privat, dan hasil tiap pemeriksaan. Jika setup gagal, **Setup timeline** menandai tahap yang gagal, termasuk saat preflight belum menulis konfigurasi. Hasil aplikasi tampil terpisah agar timeout installer tidak disalahartikan sebagai kegagalan koneksi.
 
+Untuk tampilan dashboard, unduh **`wfs-windows-connection`** dari bagian **Artifacts** pada run Windows, ekstrak ZIP, lalu buka HTML di browser. Dashboard dapat dibuka offline dan tetap menampilkan tahap yang gagal jika Tailscale gagal bergabung. Ini adalah rekaman saat setup, bukan status sesi secara langsung. Password dan auth key tidak disertakan.
+
 ## Linux
 
 - Default **Ubuntu KDE + XRDP**, username **`RDP`** huruf besar. Jika prompt XRDP menampilkan pilihan sesi, pilih **Xorg**.
