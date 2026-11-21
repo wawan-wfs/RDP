@@ -55,7 +55,7 @@ The user-supplied previous version, **Windows RDP with Apps**, was reviewed as a
 
 
 - `rdp` memakai **TCP 3389**, NLA, dan akun standar sementara `RDP`. Jalankan `mstsc /v:IP-TAILSCALE:3389` dari PC Windows. `/f` membuka mode layar penuh.
-- `novnc` memakai TightVNC loopback plus bridge Python/noVNC di x64. Default **HTTP privat port 6082** melalui Tailscale, atau pilih `tailscale_https` untuk mencoba HTTPS port 443 lalu fallback TCP jika HTTPS tidak tersedia. Windows noVNC memakai 8 karakter ASCII pertama dari secret. Untuk mode ini, gunakan password unik.
+- `novnc` memakai TightVNC loopback plus bridge Python/noVNC di x64. Default **HTTP privat port 6082** melalui Tailscale, atau pilih `tailscale_https` untuk mencoba HTTPS port 443 lalu fallback TCP jika HTTPS tidak tersedia. Untuk `vnc_password_mode=same_from_secret`: jika `VNC_PASSWORD` berisi 8+ karakter ASCII huruf, angka, underscore atau hyphen, password VNC ialah **8 karakter pertama**. Jika secret memuat tanda baca atau Unicode, password VNC menjadi **8 karakter heksadesimal pertama SHA-256** dari string `wfs-windows:vnc-compat:v1:` diikuti isi secret. Secret asli tidak dicetak. Lihat perintah lokal di bawah.
 - `both` menguji jalur RDP dan noVNC secara terpisah. Jika salah satu gagal, yang lulus tetap berjalan. Desktop console noVNC mungkin berbeda dari sesi RDP. Aktifkan scaling dengan URL Summary dan gunakan tombol fullscreen atau F11.
 - Opsi runner mencakup 2025, 2022, latest, ARM64 untuk RDP, dan 2025 VS2026 sesuai ketersediaan runner akun. Pada GitHub-hosted, `windows-11-arm` + `novnc` atau `both` otomatis memakai **Windows Server 2025 x64** agar opsi akses yang dipilih tetap tersedia. Pergantian image tercatat di log dan Summary. Self-hosted ARM64 tetap pilih `rdp` atau gunakan host x64 untuk noVNC.
 - Chrome, WinRAR, Node.js LTS, VS Code, Antigravity, CapCut, Shotcut, ArtCraft Launcher, MT4 Exness, MT5, 9Router, OmniRoute, Codex, Claude Code, Hermes, OpenClaw, dan OpenCode tersedia sebagai default atau pilihan. Policy **Cookie-Editor + GoFullPage** diterapkan, lalu cek ekstensi aktual di profil browser.
@@ -79,6 +79,23 @@ Untuk tampilan dashboard, unduh **`wfs-windows-connection`** dari bagian **Artif
 - Mode `both` tidak mematikan SSH jika Screen Sharing tidak tersedia. Apple VNC **port 5900** hanya dipublikasikan bila server yang sudah diaktifkan melalui metode yang diotorisasi menjawab RFB. RFB ready **tidak membuktikan login atau mouse/keyboard**.
 - Preview **port 6081** memakai tombol **Capture one frame**, password, dan cooldown 60 detik. Ia hanya dapat mengambil gambar dari akun yang berhak dan berada di sesi console. Jika izin Screen Recording belum diberikan, preview menampilkan kegagalan, tidak menonaktifkan proteksi. [Panduan Apple](https://support.apple.com/en-me/guide/remote-desktop/apd8b1c65bd/mac)
 - Opsi aplikasi VS Code, Codex, Claude Code, bundle developer/media, dan MetaTrader WebTerminal. WebTerminal tidak menjalankan EA desktop.
+
+### Windows native RDP firewall and noVNC password
+
+Perbaikan run [44957296327](https://github.com/wawan-wfs/RDP/actions/runs/44957296327):
+- Firewall sekarang **tidak** mengikat aturan pada `-InterfaceAlias` dari adaptor virtual. Aturan allow TCP 3389 hanya menerima alamat lokal Tailscale dengan sumber `100.64.0.0/10`; IPv4 lain, IPv6, dan UDP 3389 diblokir. Defender, Windows Firewall, dan NLA tetap aktif. Cleanup memulihkan konfigurasi RDP bawaan.
+- noVNC tidak gagal hanya karena secret mengandung `!`, `@`, atau Unicode. Jika format secret tidak kompatibel dengan VNCAuth, aplikasi otomatis memakai password ASCII hasil SHA-256. Untuk menghitung **password noVNC Anda sendiri** di PowerShell 7 tanpa menyebarkan secret ke log:
+
+```powershell
+$secret = Read-Host 'Masukkan nilai VNC_PASSWORD'
+if ($secret -cmatch '^[A-Za-z0-9_-]{8,}$') {
+    $vncPassword = $secret.Substring(0,8)
+} else {
+    $bytes = [Text.Encoding]::UTF8.GetBytes('wfs-windows:vnc-compat:v1:' + $secret)
+    $vncPassword = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant().Substring(0,8)
+}
+Write-Host "Password noVNC: $vncPassword"
+```
 
 ### Windows Tailscale IPv4 readiness
 

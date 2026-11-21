@@ -80,6 +80,15 @@ class Configuration(unittest.TestCase):
         self.assertNotIn("<script>", sample)
         self.assertNotIn("Tailnet</h3>", sample)
 
+    def test_rdp_firewall_uses_stable_ip_not_adapter_alias(self):
+        text = (ROOT / "windows/remote.ps1").read_text(encoding="utf-8")
+        self.assertNotIn("-InterfaceAlias", text)
+        self.assertIn("-LocalAddress $ip -RemoteAddress '100.64.0.0/10'", text)
+        self.assertIn("$rule-block-outside-v4", text)
+        self.assertIn("$rule-block-v6", text)
+        self.assertIn("$rule-block-udp", text)
+        self.assertIn("Remove-NetFirewallRule -Name \"$rule-*\"", text)
+
     def test_windows_runner_selection(self):
         default = workspace.config("windows", {}, runner_arch="X64")
         self.assertEqual(default["windows_effective_runner"], "windows-2025")
@@ -129,6 +138,14 @@ class Configuration(unittest.TestCase):
             with self.assertRaises(ValueError):
                 workspace.derive(workspace.config("windows", {}), role, pw)
         self.assertEqual(workspace.derive(workspace.config("windows", {}), "web", "ABCDEFGH_123"), "ABCDEFGH")
+        # Punctuation and Unicode remain valid source secrets; VNCAuth receives
+        # stable safe bytes without exposing the source secret in log output.
+        raw_vnc = "VNC:Password!2026"
+        expected_vnc = hashlib.sha256(("wfs-windows:vnc-compat:v1:" + raw_vnc).encode()).hexdigest()[:8]
+        self.assertEqual(workspace.derive(workspace.config("windows", {}), "web", raw_vnc), expected_vnc)
+        self.assertRegex(expected_vnc, r"^[0-9a-f]{8}$")
+        self.assertEqual(workspace.derive(workspace.config("windows", {}), "web", "Vnc✨Password2026"),
+                         hashlib.sha256("wfs-windows:vnc-compat:v1:Vnc✨Password2026".encode()).hexdigest()[:8])
         self.assertIn("&#124;", workspace.show_status([("A|B", "ready", "safe")]))
         self.assertNotIn("ThisIsAnExample", workspace.show_status([("A", "ready", "endpoint")]))
 

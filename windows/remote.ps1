@@ -122,15 +122,17 @@ if ($c.remote_access -in @('rdp','both')) {
       service = ((Get-Service TermService).Status -eq 'Running')
     } | ConvertTo-Json | Set-Content "$state/rdp-backup.json"
     $rdpRules | Disable-NetFirewallRule
-    # Block explicitly on other connected interfaces, including cases with pre-existing broad allow rules.
-    foreach ($alias in @(Get-NetAdapter | Where-Object Name -ne $tsIf.InterfaceAlias | ForEach-Object Name)) {
-      foreach ($proto in @('TCP','UDP')) {
-        New-NetFirewallRule -Name "$rule-block-$proto-$([guid]::NewGuid().ToString('N'))" -DisplayName 'WFS private RDP block' -Direction Inbound -Action Block -InterfaceAlias $alias -Protocol $proto -LocalPort 3389 | Out-Null
-      }
-    }
-    # Deny addresses outside Tailscale's IPv4 range on the tailnet adapter as well.
-    New-NetFirewallRule -Name "$rule-block-outside" -DisplayName 'WFS block non-tailnet RDP' -Direction Inbound -Action Block -RemoteAddress @('0.0.0.0-100.63.255.255','100.128.0.0-255.255.255.255','::/0') -Protocol TCP -LocalPort 3389 | Out-Null
-    New-NetFirewallRule -Name "$rule-allow" -DisplayName 'WFS tailnet-only RDP' -Direction Inbound -Action Allow -InterfaceAlias $tsIf.InterfaceAlias -LocalAddress $ip -RemoteAddress '100.64.0.0/10' -Protocol TCP -LocalPort 3389 | Out-Null
+    # GitHub's Windows image may expose virtual adapter aliases which Windows Firewall cannot resolve.
+    # Never bind a firewall policy to Get-NetAdapter aliases. Restrict the allow rule to
+    # the currently assigned Tailscale *local IPv4* and private Tailscale remote addresses.
+    Write-Host ('WFS/RDP: Tailscale IPv4 confirmed on interface index ' + $tsIf.InterfaceIndex)
+    Write-Host 'WFS/RDP: Installing tailnet-only TCP firewall policy (no interface aliases)'
+    # Explicitly block all other IPv4 ranges, all IPv6 and UDP on the RDP port,
+    # including when an unrelated broad allow rule exists on the disposable runner.
+    New-NetFirewallRule -Name "$rule-block-outside-v4" -DisplayName 'WFS block non-tailnet IPv4 RDP' -Direction Inbound -Action Block -RemoteAddress @('0.0.0.0-100.63.255.255','100.128.0.0-255.255.255.255') -Protocol TCP -LocalPort 3389 -ErrorAction Stop | Out-Null
+    New-NetFirewallRule -Name "$rule-block-v6" -DisplayName 'WFS block IPv6 RDP' -Direction Inbound -Action Block -RemoteAddress '::/0' -Protocol TCP -LocalPort 3389 -ErrorAction Stop | Out-Null
+    New-NetFirewallRule -Name "$rule-block-udp" -DisplayName 'WFS block RDP UDP (TCP-only)' -Direction Inbound -Action Block -Protocol UDP -LocalPort 3389 -ErrorAction Stop | Out-Null
+    New-NetFirewallRule -Name "$rule-allow" -DisplayName 'WFS tailnet-only RDP' -Direction Inbound -Action Allow -LocalAddress $ip -RemoteAddress '100.64.0.0/10' -Protocol TCP -LocalPort 3389 -ErrorAction Stop | Out-Null
     Set-ItemProperty $listener UserAuthentication 1
     Set-ItemProperty $listener SecurityLayer 2
     Set-ItemProperty $terminal fDenyTSConnections 0
@@ -153,6 +155,9 @@ if ($c.remote_access -in @('novnc','both')) {
     if ($env:RUNNER_ARCH -and $env:RUNNER_ARCH -ne 'X64') { throw 'TightVNC browser mode is x64 only' }
     if (Get-Service tvnserver -ErrorAction SilentlyContinue) { throw 'Existing TightVNC service will not be modified' }
     $pwd = Secret web
+    if ($c.vnc_password_mode -eq 'same_from_secret' -and $env:VNC_PASSWORD -notmatch '^[A-Za-z0-9_-]{8,}$') {
+      Status 'Windows VNC authentication' 'configured' '8-character compatibility password derived from VNC_PASSWORD; see README'
+    }
     $msi = "$state/tightvnc.msi"
     $msiUrl = 'https://www.tightvnc.com/download/2.8.90/tightvnc-2.8.90-gpl-setup-64bit.msi'
     Invoke-WebRequest $msiUrl -OutFile $msi -TimeoutSec 60

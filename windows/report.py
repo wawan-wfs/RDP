@@ -70,7 +70,7 @@ def credential(cfg, role):
     mode = cfg.get("rdp_password_mode" if role == "rdp" else "vnc_password_mode")
     if mode == "random_each_run":
         return f"per-run password derived from `{secret}`"
-    return f"`{secret}`" if role == "rdp" else f"first eight characters of `{secret}`"
+    return f"`{secret}`" if role == "rdp" else f"first eight characters of `{secret}` (ASCII safe), otherwise SHA-256 compatibility password; see README"
 
 
 def access_state(rows, outcomes):

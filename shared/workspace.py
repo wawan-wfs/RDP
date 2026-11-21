@@ -122,9 +122,12 @@ def derive(c, role, original):
         digest = hmac.new(original.encode(), label.encode(), hashlib.sha256).hexdigest()
         return (digest[:8] if role == "web" else "Wf!" + digest[:21]) if os_name == "windows" else digest[:24]
     if os_name == "windows" and role == "web":
-        if not re.fullmatch(r"[A-Za-z0-9_-]{8,}", original):
-            raise ValueError("Windows VNC_PASSWORD must use ASCII letters, digits, underscore or hyphen")
-        return original[:8]
+        if re.fullmatch(r"[A-Za-z0-9_-]{8,}", original):
+            return original[:8]
+        # TightVNC's legacy VNCAuth accepts only eight password bytes. When
+        # punctuation or Unicode is used in the secret, derive a stable ASCII
+        # compatibility password without writing the secret to logs.
+        return hashlib.sha256(("wfs-windows:vnc-compat:v1:" + original).encode("utf-8")).hexdigest()[:8]
     if os_name == "windows" and role == "rdp":
         classes = sum(bool(re.search(pattern, original)) for pattern in ("[A-Z]", "[a-z]", "[0-9]", "[^A-Za-z0-9]"))
         if classes < 3 or c["rdp_username"].casefold() in original.casefold():
