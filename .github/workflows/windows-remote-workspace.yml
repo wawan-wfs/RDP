@@ -222,6 +222,7 @@ jobs:
         python -m pip install --disable-pip-version-check -r tests/requirements.txt
         python tests/test_workspaces.py
         python windows/test_novnc.py
+        python windows/test_tailnet_ip.py
         ./tests/verify-windows.ps1
     - name: '05 · Join private tailnet (hosted runner)'
       id: tailnet

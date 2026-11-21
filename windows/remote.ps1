@@ -81,8 +81,10 @@ if ($Phase -eq 'cleanup') {
 if (-not (Test-WorkspaceAdministrator)) {
   throw 'Windows RDP/noVNC requires an elevated Administrator token (SID S-1-5-32-544); choose an elevated dedicated Windows runner'
 }
-$rawIp = & tailscale ip -4 | Select-Object -First 1
-if ($LASTEXITCODE -ne 0 -or -not $rawIp) { throw 'No private Tailscale IPv4' }
+# The action can report a connected backend before the CLI serves the node IP.
+# Resolve a verified 100.64.0.0/10 address, with bounded retries and a JSON fallback.
+$rawIp = & python -m windows.tailnet_ip
+if ($LASTEXITCODE -ne 0 -or -not $rawIp) { throw 'Tailscale IPv4 readiness check failed; review WFS/TAILNET diagnostics above' }
 $ip = & python shared/workspace.py ip $rawIp
 if ($LASTEXITCODE -ne 0 -or -not $ip) { throw 'No valid tailnet IPv4' }
 Status 'Tailnet' 'ready' "IPv4 $ip"

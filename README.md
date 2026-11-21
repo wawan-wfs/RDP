@@ -80,6 +80,10 @@ Untuk tampilan dashboard, unduh **`wfs-windows-connection`** dari bagian **Artif
 - Preview **port 6081** memakai tombol **Capture one frame**, password, dan cooldown 60 detik. Ia hanya dapat mengambil gambar dari akun yang berhak dan berada di sesi console. Jika izin Screen Recording belum diberikan, preview menampilkan kegagalan, tidak menonaktifkan proteksi. [Panduan Apple](https://support.apple.com/en-me/guide/remote-desktop/apd8b1c65bd/mac)
 - Opsi aplikasi VS Code, Codex, Claude Code, bundle developer/media, dan MetaTrader WebTerminal. WebTerminal tidak menjalankan EA desktop.
 
+### Windows Tailscale IPv4 readiness
+
+Jika Tailscale Action sudah terhubung tetapi `tailscale ip -4` belum menghasilkan IPv4, workflow kini menunggu dengan polling terbatas serta mencoba `tailscale status --json` (`Self.TailscaleIPs`). Hanya alamat IPv4 privat dalam `100.64.0.0/10` yang diterima. Diagnostik `WFS/TAILNET` dicetak ke log tanpa auth key atau alamat lain; bila tetap tidak tersedia, step **06** gagal dengan pesan spesifik. Ini menangani kegagalan run [44956502973](https://github.com/wawan-wfs/RDP/actions/runs/44956502973) yang berhenti setelah Tailscale berhasil connect namun IP belum terbaca.
+
 ## Pengujian
 
 Mode **`validation_only=true`** tersedia di ketiga workflow. Mode ini tidak mengambil secret atau membuka port remote. Untuk tes lokal dari root paket:
@@ -88,6 +92,7 @@ Mode **`validation_only=true`** tersedia di ketiga workflow. Mode ini tidak meng
 python3 -m pip install -r tests/requirements.txt
 python3 tests/test_workspaces.py
 python3 windows/test_novnc.py
+python3 windows/test_tailnet_ip.py
 python3 tests/linux_mock.py
 ```
 
