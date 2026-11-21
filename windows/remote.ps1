@@ -72,6 +72,22 @@ if ($Phase -eq 'cleanup') {
     Remove-NetFirewallRule -Name "$rule-allow" -ErrorAction SilentlyContinue
     foreach ($old in $previous.enabled) { Enable-NetFirewallRule -Name $old -ErrorAction SilentlyContinue }
     if (-not $previous.service -and (Get-Service TermService).Status -eq 'Running') { Stop-Service TermService -Force -ErrorAction SilentlyContinue }
+    # Restore modified firewall profiles only on the same disposable GitHub-hosted runner.
+    if (Test-Path "$state/firewall-before.json") {
+      try {
+        $savedProfiles = @(Get-Content "$state/firewall-before.json" -Raw | ConvertFrom-Json)
+        foreach ($saved in $savedProfiles) {
+          if ($saved.default_inbound -in @('Allow', 'Block')) {
+            Set-NetFirewallProfile -Profile $saved.name -Enabled ([bool]$saved.enabled) -DefaultInboundAction $saved.default_inbound -ErrorAction Stop
+          } else {
+            # NotConfigured is only legal for GPO settings; never write it to a local store.
+            Set-NetFirewallProfile -Profile $saved.name -Enabled ([bool]$saved.enabled) -ErrorAction Stop
+            Write-Warning "Original default inbound for $($saved.name) was not a restorable local value; retaining Block on disposable runner."
+          }
+        }
+        Remove-Item "$state/firewall-before.json" -Force
+      } catch { Write-Warning ("Windows Firewall profile restore: " + $_.Exception.Message) }
+    }
     Remove-Item "$state/rdp-backup.json" -Force
   }
   Get-ScheduledTask -TaskName "WFS-UserApps-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-*" -ErrorAction SilentlyContinue |
@@ -124,13 +140,33 @@ if ($c.remote_access -in @('rdp','both')) {
       service = ((Get-Service TermService).Status -eq 'Running')
     } | ConvertTo-Json | Set-Content "$state/rdp-backup.json"
     $rdpRules | Disable-NetFirewallRule
-    # Windows Server 2025 rejects malformed ranges and some virtual-interface aliases.
-    # Fail closed: accept a temporary rule only if every firewall profile blocks
-    # unsolicited inbound traffic. Built-in broad RDP allow rules remain disabled.
+    # Fail closed: prevent default-allow profiles from exposing port 3389.
+    # GitHub ARM64 images can have non-Block profile defaults. For disposable hosted
+    # runners only, save those defaults and temporarily enforce inbound Block.
+    # Self-hosted runners are never modified automatically for this requirement.
     $profiles = @(Get-NetFirewallProfile -ErrorAction Stop)
-    if ($profiles.Count -lt 1 -or @($profiles | Where-Object { -not $_.Enabled -or $_.DefaultInboundAction -ne 'Block' }).Count -gt 0) {
-      throw 'Cannot enforce private-only RDP: all Windows Firewall profiles must be enabled with default inbound Block'
+    if ($profiles.Count -lt 1) { throw 'No Windows Firewall profiles were found' }
+    $unprotected = @($profiles | Where-Object { -not $_.Enabled -or [string]$_.DefaultInboundAction -ne 'Block' })
+    if ($unprotected.Count -gt 0) {
+      $details = ($unprotected | ForEach-Object { "{0}: enabled={1}, inbound={2}" -f $_.Name,$_.Enabled,$_.DefaultInboundAction }) -join '; '
+      Write-Warning "WFS/RDP: Firewall profiles require temporary hardening: $details"
+      if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $c.runner_type -ne 'github') {
+        throw 'Self-hosted firewall settings are not modified automatically. Enable all profiles with DefaultInboundAction Block before RDP.'
+      }
+      $snapshot = @($profiles | ForEach-Object {
+        [pscustomobject]@{ name = [string]$_.Name; enabled = [bool]$_.Enabled; default_inbound = [string]$_.DefaultInboundAction }
+      })
+      ConvertTo-Json -InputObject $snapshot -Depth 5 | Set-Content "$state/firewall-before.json" -Encoding utf8
+      foreach ($profile in $unprotected) {
+        Set-NetFirewallProfile -Profile $profile.Name -Enabled True -DefaultInboundAction Block -ErrorAction Stop
+      }
     }
+    # Verify *effective* policy after applying temporary hardening.
+    $effectiveProfiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction Stop)
+    if ($effectiveProfiles.Count -lt 1 -or @($effectiveProfiles | Where-Object { -not $_.Enabled -or [string]$_.DefaultInboundAction -ne 'Block' }).Count -gt 0) {
+      throw 'Firewall policy still permits unsolicited inbound traffic. Refusing to expose RDP.'
+    }
+    Write-Host '::notice title=WFS RDP firewall::Effective inbound Block verified on all Windows Firewall profiles'
     Write-Host '::notice title=WFS RDP firewall::Using single scoped allow rule, inbound-default-deny; no invalid address ranges or interface aliases'
     New-NetFirewallRule -Name "$rule-allow" -DisplayName 'WFS scoped RDP over Tailscale' -Direction Inbound -Action Allow -LocalAddress $ip -RemoteAddress '100.64.0.0/10' -Protocol TCP -LocalPort 3389 -ErrorAction Stop | Out-Null
     Set-ItemProperty $listener UserAuthentication 1
