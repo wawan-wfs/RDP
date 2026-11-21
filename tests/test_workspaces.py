@@ -84,10 +84,10 @@ class Configuration(unittest.TestCase):
         text = (ROOT / "windows/remote.ps1").read_text(encoding="utf-8")
         self.assertNotIn("-InterfaceAlias", text)
         self.assertIn("-LocalAddress $ip -RemoteAddress '100.64.0.0/10'", text)
-        self.assertIn("$rule-block-outside-v4", text)
-        self.assertIn("$rule-block-v6", text)
-        self.assertIn("$rule-block-udp", text)
-        self.assertIn("Remove-NetFirewallRule -Name \"$rule-*\"", text)
+        self.assertIn("DefaultInboundAction -ne 'Block'", text)
+        self.assertIn("New-NetFirewallRule -Name \"$rule-allow\"", text)
+        self.assertIn("Remove-NetFirewallRule -Name \"$rule-allow\"", text)
+        self.assertNotIn("0.0.0.0-100.63.255.255", text)
 
     def test_windows_runner_selection(self):
         default = workspace.config("windows", {}, runner_arch="X64")

@@ -69,7 +69,7 @@ if ($Phase -eq 'cleanup') {
     Set-ItemProperty $terminal fDenyTSConnections $previous.deny
     Set-ItemProperty $listener UserAuthentication $previous.nla
     if ($null -ne $previous.security_layer) { Set-ItemProperty $listener SecurityLayer $previous.security_layer }
-    Remove-NetFirewallRule -Name "$rule-*" -ErrorAction SilentlyContinue
+    Remove-NetFirewallRule -Name "$rule-allow" -ErrorAction SilentlyContinue
     foreach ($old in $previous.enabled) { Enable-NetFirewallRule -Name $old -ErrorAction SilentlyContinue }
     if (-not $previous.service -and (Get-Service TermService).Status -eq 'Running') { Stop-Service TermService -Force -ErrorAction SilentlyContinue }
     Remove-Item "$state/rdp-backup.json" -Force
