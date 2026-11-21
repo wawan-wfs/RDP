@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 Set-Location (Split-Path $PSScriptRoot -Parent)
 . "$PSScriptRoot/Workspace-InstallStatus.ps1"
+. "$PSScriptRoot/Workspace-Privileges.ps1"
 if (-not $env:WFS_STATE -or -not (Test-Path -LiteralPath $env:WFS_STATE)) { if ($Phase -eq 'cleanup') { return } else { throw 'Missing preflight state' } }
 $state = $env:WFS_STATE
 $c = Get-Content "$state/config.json" -Raw | ConvertFrom-Json
@@ -65,6 +66,7 @@ if ($Phase -eq 'cleanup') {
     $previous = Get-Content "$state/rdp-backup.json" -Raw | ConvertFrom-Json
     Set-ItemProperty $terminal fDenyTSConnections $previous.deny
     Set-ItemProperty $listener UserAuthentication $previous.nla
+    if ($null -ne $previous.security_layer) { Set-ItemProperty $listener SecurityLayer $previous.security_layer }
     Remove-NetFirewallRule -Name "$rule-*" -ErrorAction SilentlyContinue
     foreach ($old in $previous.enabled) { Enable-NetFirewallRule -Name $old -ErrorAction SilentlyContinue }
     if (-not $previous.service -and (Get-Service TermService).Status -eq 'Running') { Stop-Service TermService -Force -ErrorAction SilentlyContinue }
@@ -76,8 +78,8 @@ if ($Phase -eq 'cleanup') {
   return
 }
 
-if (-not ([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole('Administrator')) {
-  throw 'The Windows workspace runner must be an administrator on a dedicated machine'
+if (-not (Test-WorkspaceAdministrator)) {
+  throw 'Windows RDP/noVNC requires an elevated Administrator token (SID S-1-5-32-544); choose an elevated dedicated Windows runner'
 }
 $rawIp = & tailscale ip -4 | Select-Object -First 1
 if ($LASTEXITCODE -ne 0 -or -not $rawIp) { throw 'No private Tailscale IPv4' }
@@ -96,11 +98,24 @@ if ($c.remote_access -in @('rdp','both')) {
     New-Item "$state/user-owned" -ItemType File -Force | Out-Null
     Remove-Variable pwd
     Add-LocalGroupMember -Group $remoteGroup.Name -Member $user
+    if ($c.rdp_user_role -eq 'administrator') {
+      # Legacy workflow offered RDP Administrator access. Keep UAC enabled.
+      $adminGroup = Get-LocalGroup -SID 'S-1-5-32-544' -ErrorAction Stop
+      Add-LocalGroupMember -Group $adminGroup.Name -Member $user -ErrorAction Stop
+      $createdSid = (Get-LocalUser -Name $user -ErrorAction Stop).SID.Value
+      if (@(Get-LocalGroupMember -Group $adminGroup.Name -ErrorAction Stop | Where-Object { $_.SID.Value -eq $createdSid }).Count -lt 1) {
+        throw 'RDP user Administrator membership could not be verified'
+      }
+      Status 'RDP account role' 'configured' 'Administrator (opt-in); UAC remains enabled'
+    } else {
+      Status 'RDP account role' 'configured' 'Standard user (recommended)'
+    }
     $tsIf = Get-NetIPAddress -IPAddress $ip -AddressFamily IPv4 -ErrorAction Stop | Select-Object -First 1
     $rdpRules = @(Get-NetFirewallRule -Name 'RemoteDesktop*' -ErrorAction SilentlyContinue | Where-Object Enabled -eq 'True')
     @{
       deny = (Get-ItemProperty $terminal).fDenyTSConnections
       nla = (Get-ItemProperty $listener).UserAuthentication
+      security_layer = (Get-ItemProperty $listener).SecurityLayer
       enabled = @($rdpRules | ForEach-Object Name)
       service = ((Get-Service TermService).Status -eq 'Running')
     } | ConvertTo-Json | Set-Content "$state/rdp-backup.json"
@@ -115,6 +130,7 @@ if ($c.remote_access -in @('rdp','both')) {
     New-NetFirewallRule -Name "$rule-block-outside" -DisplayName 'WFS block non-tailnet RDP' -Direction Inbound -Action Block -RemoteAddress @('0.0.0.0-100.63.255.255','100.128.0.0-255.255.255.255','::/0') -Protocol TCP -LocalPort 3389 | Out-Null
     New-NetFirewallRule -Name "$rule-allow" -DisplayName 'WFS tailnet-only RDP' -Direction Inbound -Action Allow -InterfaceAlias $tsIf.InterfaceAlias -LocalAddress $ip -RemoteAddress '100.64.0.0/10' -Protocol TCP -LocalPort 3389 | Out-Null
     Set-ItemProperty $listener UserAuthentication 1
+    Set-ItemProperty $listener SecurityLayer 2
     Set-ItemProperty $terminal fDenyTSConnections 0
     Start-Service TermService
     Wait-ServicePort $ip 3389

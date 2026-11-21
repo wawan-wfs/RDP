@@ -43,6 +43,17 @@ Hostname default `rdp-runner` dengan `same_each_run`. Jika ingin sesi paralel, p
 
 ## Windows
 
+### Upgrades from the uploaded Windows workflow
+
+The user-supplied previous version, **Windows RDP with Apps**, was reviewed as a feature reference. The new version keeps its selectable desktop applications, Chrome extensions, IDE extension setup, desktop shortcuts, MetaTrader, and optional administrator access, while retaining Tailscale-only remote access, noVNC, timeout controls, and cleanup. This is an enhanced rebuild, not a byte-identical restoration.
+
+- The Windows Administrator token is checked using SID **S-1-5-32-544** and PowerShell **WindowsBuiltInRole.Administrator**, rather than the localized display string.
+- `rdp_user_role` is **standard** by default; choose **administrator** for the old workflow's privileged RDP account (UAC stays enabled). The temporary account is removed during cleanup.
+- `desktop_profile` adds **balanced** (default) and **responsive** per-user visual preferences without disabling Defender, Firewall, or system services.
+- Chrome's **Cookie-Editor** and **GoFullPage** remain managed-policy extensions. IDE extensions **OpenAI/Codex** and **Office Viewer** are scheduled for the actual RDP user's first login, with shortcuts for manual retry. Configured does not mean completed or verified.
+- The separate **wfs-windows-apps** artifact is an offline application status dashboard; download it from the run's Artifacts section.
+
+
 - `rdp` memakai **TCP 3389**, NLA, dan akun standar sementara `RDP`. Jalankan `mstsc /v:IP-TAILSCALE:3389` dari PC Windows. `/f` membuka mode layar penuh.
 - `novnc` memakai TightVNC loopback plus bridge Python/noVNC di x64. Default **HTTP privat port 6082** melalui Tailscale, atau pilih `tailscale_https` untuk mencoba HTTPS port 443 lalu fallback TCP jika HTTPS tidak tersedia. Windows noVNC memakai 8 karakter ASCII pertama dari secret. Untuk mode ini, gunakan password unik.
 - `both` menguji jalur RDP dan noVNC secara terpisah. Jika salah satu gagal, yang lulus tetap berjalan. Desktop console noVNC mungkin berbeda dari sesi RDP. Aktifkan scaling dengan URL Summary dan gunakan tombol fullscreen atau F11.

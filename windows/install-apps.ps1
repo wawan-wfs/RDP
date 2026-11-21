@@ -58,6 +58,47 @@ function Queue-AtLogon([string]$key,[string]$file,[string]$commandArgs) {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
   } catch { Write-Warning "Could not queue per-user setup $key; Start Menu fallback is available." }
 }
+function Setup-DesktopExperience {
+  # Opt-in visual settings only, scoped to the RDP user's interactive profile.
+  if ($c.desktop_profile -ne 'responsive') {
+    Status 'Desktop profile' 'configured' 'Balanced; Windows defaults preserved'
+    return
+  }
+  $script = Join-Path $programs 'RDP-ResponsiveDesktop.ps1'
+  @'
+$ErrorActionPreference = 'Continue'
+$visual = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects'
+New-Item -Path $visual -Force | Out-Null
+Set-ItemProperty -Path $visual -Name VisualFXSetting -Value 2 -Force
+Set-ItemProperty 'HKCU:\Control Panel\Desktop' -Name MenuShowDelay -Value '80' -Force
+Set-ItemProperty 'HKCU:\Control Panel\Desktop' -Name DragFullWindows -Value '1' -Force
+'@ | Set-Content -LiteralPath $script -Encoding utf8BOM
+  Queue-AtLogon 'ResponsiveDesktop' $script ''
+  Status 'Desktop profile' 'configured' 'Responsive UI preferences scheduled for RDP logon'
+}
+function Configure-IdeExtensions([string] $ide) {
+  # Queue extension install in RDP profile; runneradmin's extensions do not transfer.
+  $key = if ($ide -eq 'VSCode') { 'VSCode' } else { 'Antigravity' }
+  $path = Join-Path $programs "Install-$key-Extensions.ps1"
+  $candidates = if ($key -eq 'VSCode') {
+    @('$env:ProgramFiles/Microsoft VS Code/bin/code.cmd', '${env:ProgramFiles(x86)}/Microsoft VS Code/bin/code.cmd', '$env:LOCALAPPDATA/Programs/Microsoft VS Code/bin/code.cmd')
+  } else {
+    @('$env:LOCALAPPDATA/Programs/Antigravity IDE/Antigravity IDE.exe', '$env:ProgramFiles/Antigravity IDE/Antigravity IDE.exe')
+  }
+  $lines = @('$ErrorActionPreference = "Continue"', '$candidates = @(')
+  for ($i = 0; $i -lt $candidates.Count; $i++) {
+    $separator = if ($i -lt $candidates.Count - 1) { ',' } else { '' }
+    $lines += "'" + $candidates[$i].Replace("'", "''") + "'$separator"
+  }
+  $lines += ')'
+  $lines += '$cli = $candidates | ForEach-Object { $ExecutionContext.InvokeCommand.ExpandString($_) } | Where-Object { Test-Path $_ } | Select-Object -First 1'
+  $lines += 'if (-not $cli) { Write-Warning "IDE executable not present for RDP user"; exit 1 }'
+  $lines += 'foreach ($id in @("OpenAI.chatgpt","cweijan.vscode-office")) { & $cli --install-extension $id --force; if ($LASTEXITCODE -ne 0) { Write-Warning "Extension $id failed" } }'
+  Set-Content -LiteralPath $path -Value $lines -Encoding utf8BOM
+  Queue-AtLogon "${key}Extensions" $path ''
+  Shortcut "Configure $ide extensions" (Join-Path $PSHOME 'pwsh.exe') ('-NoLogo -NoExit -NoProfile -File "{0}"' -f $path)
+  Status "$ide extensions" 'configured' 'Codex + Office Viewer; auto-run at RDP logon with shortcut fallback'
+}
 function Choice($choice,$one) { $choice -in @($one,'both','all') }
 function Report-App($name,[scriptblock]$action) {
   $result = 'installed'
@@ -223,6 +264,8 @@ function VendorNative($app) {
 }
 
 if ($Group -in 'base','all') {
+  try { Setup-DesktopExperience } catch { Status 'Desktop profile' 'warning' 'Could not schedule optional UI preferences' }
+  try { Start-Service -Name Audiosrv -ErrorAction Stop; Status 'Windows audio' 'configured' 'Audio service running' } catch { Status 'Windows audio' 'warning' 'Audio service could not be started' }
   Report-App 'Chrome' {
     try { $chrome = Package 'Google.Chrome' 'googlechrome' @(Candidates 'Google/Chrome/Application/chrome.exe') }
     catch {
@@ -248,12 +291,15 @@ if ($Group -in 'gui','all') {
     $codeCli = Join-Path (Split-Path $exe) 'bin/code.cmd'
     if (Test-Path $codeCli) {
       $cmd = "$env:SystemRoot/System32/cmd.exe"
-      Shortcut 'Configure VS Code extensions' $cmd ('/D /K ""{0}" --install-extension OpenAI.chatgpt --force & "{0}" --install-extension cweijan.vscode-office --force"' -f $codeCli)
+      Configure-IdeExtensions 'VSCode'
+    } else {
+      Configure-IdeExtensions 'VSCode'
     }
   } }
   if (Choice $c.ide_choice 'antigravity') { Report-App 'Antigravity IDE' {
     try { Shortcut 'Antigravity IDE' (Package 'Google.AntigravityIDE' '' @(Candidates 'Antigravity IDE/Antigravity IDE.exe'; Candidates 'Antigravity/Antigravity.exe')) }
     catch { User-Winget-Setup 'Google.AntigravityIDE' 'Antigravity IDE' }
+    Configure-IdeExtensions 'Antigravity'
   } }
   if (Choice $c.editor_choice 'shotcut') { Report-App 'Shotcut' { Shortcut 'Shotcut' (Package 'Meltytech.Shotcut' 'shotcut' @(Candidates 'Shotcut/shotcut.exe')) } }
   if (Choice $c.editor_choice 'capcut') { Report-App 'CapCut' {

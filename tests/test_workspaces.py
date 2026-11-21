@@ -57,6 +57,29 @@ class Configuration(unittest.TestCase):
         self.assertEqual(ok["distro"], "igos-nusantara")
         self.assertEqual(workspace.config("macos", {"hostname_mode": "unique_each_run"}, "42", "2")["hostname"], "rdp-runner-42-2")
 
+    def test_legacy_windows_parity_options_and_admin_sid(self):
+        c = workspace.config("windows", {})
+        self.assertEqual((c["rdp_user_role"], c["desktop_profile"]), ("standard", "balanced"))
+        requested = workspace.config("windows", {"rdp_user_role": "administrator", "desktop_profile": "responsive"})
+        self.assertEqual(requested["rdp_user_role"], "administrator")
+        with self.assertRaises(ValueError):
+            workspace.config("windows", {"rdp_user_role": "SYSTEM"})
+        helper = (ROOT / "windows/Workspace-Privileges.ps1").read_text(encoding="utf-8")
+        remote = (ROOT / "windows/remote.ps1").read_text(encoding="utf-8")
+        self.assertIn("WindowsBuiltInRole]::Administrator", helper)
+        self.assertIn("Test-WorkspaceAdministrator", remote)
+        self.assertNotIn("IsInRole('Administrator')", remote)
+        self.assertIn("S-1-5-32-544", remote)
+
+    def test_windows_app_inventory_escapes_output(self):
+        from windows.inventory import render
+        sample = render([("Chrome", "installed", "Verified"), ("CapCut", "pending interactive", "After login"), ("Demo<script>", "failed", "Review logs"), ("Tailnet", "ready", "ignored")], {}, "42", "1")
+        self.assertIn("Application Inventory", sample)
+        self.assertIn("Finish after RDP login", sample)
+        self.assertIn("Demo&lt;script&gt;", sample)
+        self.assertNotIn("<script>", sample)
+        self.assertNotIn("Tailnet</h3>", sample)
+
     def test_windows_runner_selection(self):
         default = workspace.config("windows", {}, runner_arch="X64")
         self.assertEqual(default["windows_effective_runner"], "windows-2025")

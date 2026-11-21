@@ -74,6 +74,8 @@ def config(os_name, d, run_id="local", attempt="1", runner_arch=""):
     if os_name == "windows":
         c["windows_version"] = pick(d, "windows_version", WINDOWS, WINDOWS[0])
         c["novnc_transport"] = pick(d, "novnc_transport", ("tailscale_tcp", "tailscale_https"), "tailscale_tcp")
+        c["rdp_user_role"] = pick(d, "rdp_user_role", ("standard", "administrator"), "standard")
+        c["desktop_profile"] = pick(d, "desktop_profile", ("balanced", "responsive"), "balanced")
         browser = c["remote_access"] in {"novnc", "both"}
         hosted = c["runner_type"] == "github"
         c["windows_fallback"] = hosted and browser and c["windows_version"] == "windows-11-arm"

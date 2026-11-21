@@ -57,6 +57,22 @@ on:
         options:
         - tailscale_tcp
         - tailscale_https
+      rdp_user_role:
+        description: RDP user privileges; Administrator is opt-in and protected by UAC
+        required: true
+        type: choice
+        default: standard
+        options:
+        - standard
+        - administrator
+      desktop_profile:
+        description: Desktop UI tuning (never disables Defender, Firewall or UAC)
+        required: true
+        type: choice
+        default: balanced
+        options:
+        - balanced
+        - responsive
       rdp_username:
         description: Temporary desktop login name
         required: true
@@ -188,6 +204,14 @@ jobs:
           throw 'Use an isolated dedicated Windows lab runner and set WFS_DEDICATED_RUNNER=true'
         }
         python shared/workspace.py init windows
+        if ($LASTEXITCODE -ne 0) { throw 'Windows preflight configuration failed' }
+        if ($env:WFS_VALIDATE_ONLY -ne 'true') {
+          . ./windows/Workspace-Privileges.ps1
+          if (-not (Test-WorkspaceAdministrator)) {
+            throw 'Windows remote access requires elevated Administrator rights (SID S-1-5-32-544); choose an elevated dedicated runner.'
+          }
+          Write-Host '::notice title=WFS Windows security::Administrator token verified via BUILTIN SID S-1-5-32-544'
+        }
     - name: '04 · Native checks (validation only)'
       id: verify
       if: ${{ inputs.validation_only }}
@@ -284,12 +308,24 @@ jobs:
           }
         }
     - name: '09 · Publish application results'
+      id: app_report
       if: ${{ !cancelled() && steps.remote.outcome == 'success' }}
       shell: pwsh
       continue-on-error: true
       env:
         WFS_APP_OUTCOME: ${{ steps.apps.outcome }}
-      run: python -m windows.report apps
+      run: |
+        python -m windows.report apps
+        python -m windows.inventory
+    - name: '09b · Attach application inventory dashboard'
+      if: ${{ !cancelled() && steps.app_report.outputs.inventory == 'true' }}
+      uses: actions/upload-artifact@v6
+      continue-on-error: true
+      with:
+        name: wfs-windows-apps-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/wfs-apps-${{ github.run_id }}-${{ github.run_attempt }}.html
+        retention-days: 7
+        if-no-files-found: warn
     - name: '10 · Keep verified endpoints available'
       if: ${{ !cancelled() && steps.remote.outcome == 'success' }}
       shell: pwsh
