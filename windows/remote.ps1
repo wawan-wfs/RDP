@@ -60,6 +60,8 @@ if ($Phase -eq 'cleanup') {
     if (-not (Get-Service tvnserver -ErrorAction SilentlyContinue)) {
       Remove-NetFirewallRule -Name "$rule-VNC-Block" -ErrorAction SilentlyContinue
       Remove-Item "$state/vnc-owned" -Force
+    } else {
+      Write-Warning 'TightVNC service remains installed; direct VNC firewall deny rule retained for safety.'
     }
   }
   if (Test-Path "$state/rdp-backup.json") {
@@ -81,15 +83,14 @@ if ($Phase -eq 'cleanup') {
 if (-not (Test-WorkspaceAdministrator)) {
   throw 'Windows RDP/noVNC requires an elevated Administrator token (SID S-1-5-32-544); choose an elevated dedicated Windows runner'
 }
-# The action can report a connected backend before the CLI serves the node IP.
-# Resolve a verified 100.64.0.0/10 address, with bounded retries and a JSON fallback.
+# Avoid race between action backend Ready and Tailscale CLI IPv4 assignment.
 $rawIp = & python -m windows.tailnet_ip
-if ($LASTEXITCODE -ne 0 -or -not $rawIp) { throw 'Tailscale IPv4 readiness check failed; review WFS/TAILNET diagnostics above' }
+if ($LASTEXITCODE -ne 0 -or -not $rawIp) { throw 'Tailscale node has no verified private IPv4 after bounded retries' }
 $ip = & python shared/workspace.py ip $rawIp
 if ($LASTEXITCODE -ne 0 -or -not $ip) { throw 'No valid tailnet IPv4' }
 Status 'Tailnet' 'ready' "IPv4 $ip"
 if ($c.remote_access -in @('rdp','both')) {
-  Write-Host '::group::WFS / Native RDP - NLA and private listener'
+  Write-Host '::group::🛡️ WFS / RDP · secure private listener + NLA'
   try {
     if ((Get-NetFirewallProfile | Where-Object { -not $_.Enabled }).Count) { throw 'Windows Firewall must be enabled for each profile' }
     if ((Get-ItemProperty $listener).PortNumber -ne 3389) { throw 'Expected native RDP listener at 3389' }
@@ -101,7 +102,8 @@ if ($c.remote_access -in @('rdp','both')) {
     Remove-Variable pwd
     Add-LocalGroupMember -Group $remoteGroup.Name -Member $user
     if ($c.rdp_user_role -eq 'administrator') {
-      # Legacy workflow offered RDP Administrator access. Keep UAC enabled.
+      # Legacy Windows workflow used the administrators group. This is opt-in now,
+      # resolved by SID for localized Windows images and checked after assignment.
       $adminGroup = Get-LocalGroup -SID 'S-1-5-32-544' -ErrorAction Stop
       Add-LocalGroupMember -Group $adminGroup.Name -Member $user -ErrorAction Stop
       $createdSid = (Get-LocalUser -Name $user -ErrorAction Stop).SID.Value
@@ -122,17 +124,15 @@ if ($c.remote_access -in @('rdp','both')) {
       service = ((Get-Service TermService).Status -eq 'Running')
     } | ConvertTo-Json | Set-Content "$state/rdp-backup.json"
     $rdpRules | Disable-NetFirewallRule
-    # GitHub's Windows image may expose virtual adapter aliases which Windows Firewall cannot resolve.
-    # Never bind a firewall policy to Get-NetAdapter aliases. Restrict the allow rule to
-    # the currently assigned Tailscale *local IPv4* and private Tailscale remote addresses.
-    Write-Host ('WFS/RDP: Tailscale IPv4 confirmed on interface index ' + $tsIf.InterfaceIndex)
-    Write-Host 'WFS/RDP: Installing tailnet-only TCP firewall policy (no interface aliases)'
-    # Explicitly block all other IPv4 ranges, all IPv6 and UDP on the RDP port,
-    # including when an unrelated broad allow rule exists on the disposable runner.
-    New-NetFirewallRule -Name "$rule-block-outside-v4" -DisplayName 'WFS block non-tailnet IPv4 RDP' -Direction Inbound -Action Block -RemoteAddress @('0.0.0.0-100.63.255.255','100.128.0.0-255.255.255.255') -Protocol TCP -LocalPort 3389 -ErrorAction Stop | Out-Null
-    New-NetFirewallRule -Name "$rule-block-v6" -DisplayName 'WFS block IPv6 RDP' -Direction Inbound -Action Block -RemoteAddress '::/0' -Protocol TCP -LocalPort 3389 -ErrorAction Stop | Out-Null
-    New-NetFirewallRule -Name "$rule-block-udp" -DisplayName 'WFS block RDP UDP (TCP-only)' -Direction Inbound -Action Block -Protocol UDP -LocalPort 3389 -ErrorAction Stop | Out-Null
-    New-NetFirewallRule -Name "$rule-allow" -DisplayName 'WFS tailnet-only RDP' -Direction Inbound -Action Allow -LocalAddress $ip -RemoteAddress '100.64.0.0/10' -Protocol TCP -LocalPort 3389 -ErrorAction Stop | Out-Null
+    # Windows Server 2025 rejects malformed ranges and some virtual-interface aliases.
+    # Fail closed: accept a temporary rule only if every firewall profile blocks
+    # unsolicited inbound traffic. Built-in broad RDP allow rules remain disabled.
+    $profiles = @(Get-NetFirewallProfile -ErrorAction Stop)
+    if ($profiles.Count -lt 1 -or @($profiles | Where-Object { -not $_.Enabled -or $_.DefaultInboundAction -ne 'Block' }).Count -gt 0) {
+      throw 'Cannot enforce private-only RDP: all Windows Firewall profiles must be enabled with default inbound Block'
+    }
+    Write-Host '::notice title=WFS RDP firewall::Using single scoped allow rule, inbound-default-deny; no invalid address ranges or interface aliases'
+    New-NetFirewallRule -Name "$rule-allow" -DisplayName 'WFS scoped RDP over Tailscale' -Direction Inbound -Action Allow -LocalAddress $ip -RemoteAddress '100.64.0.0/10' -Protocol TCP -LocalPort 3389 -ErrorAction Stop | Out-Null
     Set-ItemProperty $listener UserAuthentication 1
     Set-ItemProperty $listener SecurityLayer 2
     Set-ItemProperty $terminal fDenyTSConnections 0
@@ -145,36 +145,60 @@ if ($c.remote_access -in @('rdp','both')) {
   } catch {
     Status 'Windows RDP' 'failed' 'See the remote setup step'
     Write-Warning ("RDP setup: " + $_.Exception.Message)
-  } finally {
-    Write-Host '::endgroup::'
-  }
+  } finally { Write-Host '::endgroup::' }
 }
 if ($c.remote_access -in @('novnc','both')) {
-  Write-Host '::group::WFS / Browser desktop - TightVNC, WebSocket and tailnet'
+  Write-Host '::group::🖥️ WFS / noVNC · loopback and tailnet bridge'
   try {
-    if ($env:RUNNER_ARCH -and $env:RUNNER_ARCH -ne 'X64') { throw 'TightVNC browser mode is x64 only' }
+    if ($env:RUNNER_ARCH -eq 'ARM64') { throw 'TightVNC browser mode is x64 only' }
     if (Get-Service tvnserver -ErrorAction SilentlyContinue) { throw 'Existing TightVNC service will not be modified' }
     $pwd = Secret web
-    if ($c.vnc_password_mode -eq 'same_from_secret' -and $env:VNC_PASSWORD -notmatch '^[A-Za-z0-9_-]{8,}$') {
-      Status 'Windows VNC authentication' 'configured' '8-character compatibility password derived from VNC_PASSWORD; see README'
-    }
     $msi = "$state/tightvnc.msi"
     $msiUrl = 'https://www.tightvnc.com/download/2.8.90/tightvnc-2.8.90-gpl-setup-64bit.msi'
-    Invoke-WebRequest $msiUrl -OutFile $msi -TimeoutSec 60
-    $signature = Get-AuthenticodeSignature -FilePath $msi
-    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'GlavSoft|TightVNC') { throw 'TightVNC signature/publisher verification failed' }
-    New-NetFirewallRule -Name "$rule-VNC-Block" -DisplayName 'WFS block direct VNC' -Protocol TCP -LocalPort 5900 -Direction Inbound -Action Block | Out-Null
-    New-Item "$state/vnc-owned" -ItemType File -Force | Out-Null
-    $arguments = @('/i', ('"{0}"' -f $msi), '/quiet', '/norestart', 'ADDLOCAL=Server', 'SERVER_REGISTER_AS_SERVICE=1',
+    $msiProperties = @('ADDLOCAL=Server', 'SERVER_REGISTER_AS_SERVICE=1',
       'SERVER_ADD_FIREWALL_EXCEPTION=0', 'SET_USEVNCAUTHENTICATION=1','VALUE_OF_USEVNCAUTHENTICATION=1',
       'SET_ALLOWLOOPBACK=1','VALUE_OF_ALLOWLOOPBACK=1','SET_LOOPBACKONLY=1','VALUE_OF_LOOPBACKONLY=1',
       'SET_REMOVEWALLPAPER=1','VALUE_OF_REMOVEWALLPAPER=0',
       'MsiHiddenProperties=VALUE_OF_PASSWORD','SET_PASSWORD=1',"VALUE_OF_PASSWORD=$pwd")
+    # Reject HTML/corrupted downloads before invoking msiexec (avoids opaque MSI 1619).
+    $validMsi = $false
     try {
-      $code = Invoke-BoundedInstaller msiexec.exe $arguments 120
-      if ($code -notin 0,3010) { throw "TightVNC MSI returned $code" }
-    } finally { Remove-Variable pwd,arguments -ErrorAction SilentlyContinue }
-    Start-Service tvnserver
+      Invoke-WebRequest $msiUrl -OutFile $msi -TimeoutSec 75 -ErrorAction Stop
+      $f = [IO.File]::OpenRead($msi)
+      try {
+        $signatureBytes = [byte[]]::new(8)
+        [void]$f.Read($signatureBytes, 0, 8)
+        $validMsi = ($f.Length -ge 1000000 -and [Convert]::ToHexString($signatureBytes) -eq 'D0CF11E0A1B11AE1')
+      } finally { $f.Dispose() }
+      if (-not $validMsi) { Write-Warning 'TightVNC URL did not return a valid MSI binary. Trying the signed winget package instead.' }
+    } catch { Write-Warning 'TightVNC direct download unavailable; trying the winget package.' }
+    if ($validMsi) {
+      $signature = Get-AuthenticodeSignature -FilePath $msi
+      if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'GlavSoft|TightVNC') { throw 'TightVNC MSI Authenticode signature or publisher verification failed' }
+    }
+    # The VNC listener MUST remain local-only. Block direct remote 5900 before install.
+    New-NetFirewallRule -Name "$rule-VNC-Block" -DisplayName 'WFS deny direct VNC (use Tailscale bridge)' -Protocol TCP -LocalPort 5900 -Direction Inbound -Action Block -ErrorAction Stop | Out-Null
+    New-Item "$state/vnc-owned" -ItemType File -Force | Out-Null
+    try {
+      $installed = $false
+      if ($validMsi) {
+        $arguments = @('/i', ('"{0}"' -f $msi), '/quiet', '/norestart') + $msiProperties
+        $code = Invoke-BoundedInstaller msiexec.exe $arguments 120
+        if ($code -in 0,3010) { $installed = $true }
+        else { Write-Warning "TightVNC MSI returned $code; attempting winget signed fallback" }
+      }
+      if (-not $installed) {
+        $winget = (Get-Command winget.exe -ErrorAction SilentlyContinue).Source
+        if (-not $winget) { throw 'TightVNC MSI unavailable or invalid and winget.exe is missing' }
+        $override = $msiProperties -join ' '
+        $code = Invoke-BoundedInstaller $winget @('install','--id','GlavSoft.TightVNC','--exact','--source','winget',
+          '--silent','--accept-source-agreements','--accept-package-agreements','--disable-interactivity',
+          '--override',('"{0}"' -f $override)) 240
+        if ($code -notin 0,3010) { throw "TightVNC winget fallback returned $code" }
+      }
+    } finally { Remove-Variable pwd,msiProperties,arguments -ErrorAction SilentlyContinue }
+    if (-not (Get-Service tvnserver -ErrorAction SilentlyContinue)) { throw 'TightVNC installation did not create the server service' }
+    Start-Service tvnserver -ErrorAction Stop
     Wait-ServicePort '127.0.0.1' 5900
     & python shared/rfb_probe.py 127.0.0.1 5900 | Out-Null
     if ($LASTEXITCODE -ne 0 -or (Get-NetTCPConnection -State Listen -LocalPort 5900 | Where-Object LocalAddress -notin @('127.0.0.1','::1'))) { throw 'VNC loopback/auth gate failed' }

@@ -114,3 +114,6 @@ python3 tests/linux_mock.py
 ```
 
 Untuk tes native Windows tambahkan `pwsh -File tests/verify-windows.ps1`. Prosedur acceptance lintas perangkat dan batasan masih perlu diuji di host asli ada di [OPERATIONS](docs/OPERATIONS.md).
+
+
+> **Windows Legacy Base Enhanced:** Workflow Windows sekarang berbasis YAML `windows-rdp-with-apps (6).yml` yang diunggah, termasuk pilihan aplikasi/shortcut yang lengkap dan tambahan RDP/noVNC, dashboard, serta cleanup. [Lihat panduan dan batasan pengujian](docs/WINDOWS_LEGACY_BASE.md).

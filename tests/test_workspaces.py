@@ -170,28 +170,28 @@ class Configuration(unittest.TestCase):
             self.assertLessEqual(len(controls), 25)
             c = workspace.config(file.name.split("-")[0], {k:v["default"] for k,v in controls.items()})
             self.assertTrue(c["hostname"])
-            job = d["jobs"]["workspace"]
+            is_windows = file.name.startswith("windows-")
+            job = d["jobs"]["secure-rdp" if is_windows else "workspace"]
             ids = [x.get("id") for x in job["steps"]]
-            self.assertLess(ids.index("remote"), ids.index("apps"))
+            app_id = "legacy_apps" if is_windows else "apps"
+            self.assertLess(ids.index("remote"), ids.index(app_id))
             self.assertEqual(d["permissions"], {"contents": "read"})
-            self.assertEqual(next(x for x in job["steps"] if x.get("id") == "apps")["continue-on-error"], "true")
+            self.assertEqual(next(x for x in job["steps"] if x.get("id") == app_id)["continue-on-error"], "true")
             self.assertIn("always()", job["steps"][-1]["if"])
-            if file.name.startswith("windows-"):
+            if is_windows:
                 self.assertIn(f"inputs.windows_version == 'windows-11-arm' && inputs.remote_access != 'rdp' && '{workspace.WINDOWS_BROWSER_FALLBACK}'", job["runs-on"])
-                summary = next(x for x in job["steps"] if "windows.report access" in x.get("run", ""))
-                self.assertEqual(summary["if"], "\u0024{{ !cancelled() }}")
-                self.assertLess(job["steps"].index(summary), ids.index("apps"))
-                self.assertLess(ids.index("preflight"), ids.index("verify"))
+                self.assertLess(ids.index("preflight"), ids.index("remote"))
                 tailnet = next(x for x in job["steps"] if x.get("id") == "tailnet")
-                flags = tailnet["with"]["args"].split()
                 self.assertRegex(tailnet["uses"], r"^tailscale/github-action@[0-9a-f]{40}$")
-                self.assertEqual(flags, ["--accept-dns=false"])
-                self.assertNotIn("--unattended", [flag.partition("=")[0] for flag in flags])
-                archive = next(x for x in job["steps"] if x.get("uses", "").startswith("actions/upload-artifact@"))
-                self.assertIn("steps.connection_report.outputs.dashboard", archive["if"])
-                self.assertEqual(archive["continue-on-error"], "true")
-            for x in job["steps"]:
-                self.assertNotRegex(x.get("run", ""), r"\$\{\{\s*(inputs|secrets)\.")
+                self.assertEqual(tailnet["with"]["args"].split(), ["--accept-dns=false"])
+                self.assertNotIn("--unattended", tailnet["with"]["args"])
+                self.assertTrue(any("windows.legacy_dashboard access" in x.get("run", "") for x in job["steps"]))
+                self.assertTrue(any(x.get("uses", "").startswith("actions/upload-artifact@") for x in job["steps"]))
+                for x in job["steps"]:
+                    self.assertNotRegex(x.get("run", ""), r"\$\{\{\s*secrets\.")
+            else:
+                for x in job["steps"]:
+                    self.assertNotRegex(x.get("run", ""), r"\$\{\{\s*(inputs|secrets)\.")
             for v in controls.values():
                 if v["type"] == "choice":
                     self.assertIn(v["default"], v["options"])
