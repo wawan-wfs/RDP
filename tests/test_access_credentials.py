@@ -1,6 +1,10 @@
 """Unit checks for opt-in credential disclosure and safe copyable access logs."""
+import sys
 import unittest
+from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 from shared import workspace
 from windows import access_credentials, legacy_dashboard
 
