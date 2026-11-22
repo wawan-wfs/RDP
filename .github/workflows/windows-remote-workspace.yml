@@ -1,8 +1,8 @@
 # 🎯 Log markers: 🚀 start | ⏭️ SKIP | 📥 download | ⚙️ install
 # ✅ success | ⚠️ warning | ❌ error | ⏱️ TIME | 🛡️ admin | 🎨 ArtCraft Launcher
 # Text labels remain searchable; machine-readable paths, IDs and secrets are unchanged.
-name: "🖥️ Windows RDP with Apps"
-run-name: "🚀 Windows RDP with Apps"
+name: "WFS Windows Remote Workspace"
+run-name: "WFS Windows Remote Workspace · ${{ inputs.remote_access }}"
 
 "on":
   workflow_dispatch:
