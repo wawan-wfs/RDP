@@ -872,7 +872,16 @@ jobs:
               $hash = (Get-FileHash -Path $msiPath -Algorithm SHA256).Hash
               if ($hash -ne $Matches[1]) { throw 'ArtCraft latest release checksum mismatch' }
               $data = Invoke-RdpUserTask -Name ArtCraftLatest -TimeoutSeconds 300 -Context @{ Installer=$msiPath; Version=$release.tag_name.TrimStart('v') } -Script {
-                $candidates = @((Join-Path $env:LOCALAPPDATA 'Programs\ArtCraft Launcher\artcraft-launcher.exe'),(Join-Path $env:ProgramFiles 'ArtCraft Launcher\artcraft-launcher.exe'))
+                # Official MSI installs to Program Files\ArtCraft\ArtCraft Launcher
+                # and may retain a per-user scope under LocalAppData\Programs\ArtCraft.
+                $candidates = @(
+                  (Join-Path $env:ProgramFiles 'ArtCraft\ArtCraft Launcher\artcraft-launcher.exe'),
+                  (Join-Path $env:LOCALAPPDATA 'Programs\ArtCraft\ArtCraft Launcher\artcraft-launcher.exe'),
+                  (Join-Path $env:LOCALAPPDATA 'Programs\ArtCraft Launcher\artcraft-launcher.exe'),
+                  (Join-Path $env:ProgramFiles 'ArtCraft Launcher\artcraft-launcher.exe')
+                )
+                $registeredDir = (Get-ItemProperty 'HKCU:\Software\Learning Machines LLC\ArtCraft Launcher' -Name InstallDir -ErrorAction SilentlyContinue).InstallDir
+                if ($registeredDir) { $candidates += (Join-Path $registeredDir 'artcraft-launcher.exe') }
                 $exe = @($candidates | Where-Object { Test-Path $_ } | Select-Object -First 1)[0]
                 $currentVersion = [version]'0.0.0.0'
                 if ($exe) {
@@ -2110,8 +2119,8 @@ jobs:
           $artCraftTarget = $env:ARTCRAFT_EXE
           if (-not $artCraftTarget -or -not (Test-Path $artCraftTarget)) {
             $artCraftTarget = Resolve-AppTarget `
-              -CandidatePaths @("$artCraftRdpProfile\AppData\Local\Programs\ArtCraft Launcher\artcraft-launcher.exe", "$env:SystemDrive\Users\$env:RDP_USER\AppData\Local\Programs\ArtCraft Launcher\artcraft-launcher.exe") `
-              -SearchRoots @("$artCraftRdpProfile\AppData\Local\Programs\ArtCraft Launcher") `
+              -CandidatePaths @("$env:ProgramFiles\ArtCraft\ArtCraft Launcher\artcraft-launcher.exe", "$artCraftRdpProfile\AppData\Local\Programs\ArtCraft\ArtCraft Launcher\artcraft-launcher.exe", "$artCraftRdpProfile\AppData\Local\Programs\ArtCraft Launcher\artcraft-launcher.exe", "$env:SystemDrive\Users\$env:RDP_USER\AppData\Local\Programs\ArtCraft Launcher\artcraft-launcher.exe") `
+              -SearchRoots @("$env:ProgramFiles\ArtCraft", "$artCraftRdpProfile\AppData\Local\Programs\ArtCraft", "$artCraftRdpProfile\AppData\Local\Programs\ArtCraft Launcher") `
               -ExecutableNames @('artcraft-launcher.exe')
           }
 
@@ -2401,6 +2410,8 @@ jobs:
 
           $artCraftDetected = (Test-AnyPath @(
             "$env:SystemDrive\Users\$env:RDP_USER\AppData\Local\Programs\ArtCraft Launcher\artcraft-launcher.exe",
+            "$env:SystemDrive\Users\$env:RDP_USER\AppData\Local\Programs\ArtCraft\ArtCraft Launcher\artcraft-launcher.exe",
+            "$env:ProgramFiles\ArtCraft\ArtCraft Launcher\artcraft-launcher.exe",
             $env:ARTCRAFT_EXE
           ))
 

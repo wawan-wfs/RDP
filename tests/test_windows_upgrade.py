@@ -35,6 +35,8 @@ class Regression(unittest.TestCase):
   self.assertIn("'@anthropic-ai/claude-code' { 'claude' }",self.source)
   self.assertIn('MetaTrader $Version verified',self.source)
   self.assertIn('ByteDance.CapCut',self.source)
+  self.assertIn("ProgramFiles 'ArtCraft\\ArtCraft Launcher\\artcraft-launcher.exe'",self.source)
+  self.assertIn('HKCU:\\Software\\Learning Machines LLC\\ArtCraft Launcher',self.source)
 
  def test_all_selected_apps_not_starved_by_optional_failures(self):
   src=self.source
