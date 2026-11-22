@@ -35,6 +35,20 @@ class Regression(unittest.TestCase):
   self.assertIn("'@anthropic-ai/claude-code' { 'claude' }",self.source)
   self.assertIn('MetaTrader $Version verified',self.source)
   self.assertIn('ByteDance.CapCut',self.source)
+
+ def test_all_selected_apps_not_starved_by_optional_failures(self):
+  src=self.source
+  self.assertNotIn("if ($Name -in @('CapCut', 'Codex CLI', 'Claude Code')) { throw }",src)
+  self.assertNotIn("Install-NpmGlobalPackage -PackageName 'omniroute'",src)
+  self.assertIn("Invoke-BoundedInstaller -FilePath $env:ComSpec",src)
+  self.assertIn("Write-Warning \"⚠️ Some installation groups failed:",src)
+  a=src.index("Add-InstallTask -Name 'gui'")
+  g=src[a:src.index("Add-InstallTask -Name 'cli'",a)]
+  self.assertLess(g.index("Install-MetaTrader -Version 'mt4'"),g.index("if ($wantedAntigravity)"))
+  self.assertLess(g.index("Install-MetaTrader -Version 'mt5'"),g.index("Install-CapCutForRdp"))
+  self.assertIn("& $ctx.Winget install --id ByteDance.CapCut",src)
+  self.assertNotIn(" $args += @('--id','ByteDance.CapCut'",src)
+
  def test_no_secret_in_summary_or_logs(self):
   s=(ROOT/'windows/legacy_dashboard.py').read_text(encoding='utf8')
   self.assertNotIn('RDP_PASSWORD=',s)

@@ -87,3 +87,12 @@ This improves failure isolation and diagnostics; it does not establish successfu
 Tahap **06c** kini menampilkan log `[WFS/ACCESS]` yang memuat jenis koneksi, IP Tailscale yang terverifikasi, hostname, MagicDNS bila tersedia, perintah RDP fullscreen, username, status dan URL noVNC, serta mode password. Job Summary dan HTML dashboard juga mencantumkan detail koneksi, tetapi tanpa password.
 
 Input baru `reveal_random_password` memiliki default `false` untuk mencegah kebocoran kredensial. Saat `true` dan `rdp_password_mode` atau `vnc_password_mode` dipilih `random_each_run`, step **06c2** menampilkan password untuk endpoint yang benar-benar berstatus `ready` di **Job Summary saja**. Nilai secret sumber tetap tidak dicetak, password fixed-mode tidak ditampilkan, dan password tidak dimasukkan ke log biasa ataupun artefak HTML. Siapa saja dengan izin melihat run GitHub Actions dapat melihat password jika opsi ini diaktifkan.
+
+
+### Audit aplikasi lengkap pada run #45010869094
+
+Run tersebut berstatus **cancelled** karena sesi aktif dihentikan, bukan karena tahap installer sukses penuh. Artefak `wfs-windows-apps-1` menunjukkan 5 executable installed/detected (VS Code, Chrome, WinRAR, Node.js, OmniRoute Desktop), 3 configured (Antigravity IDE, 9Router, RDP role), dan 11 aplikasi lain tidak terdeteksi.
+
+Penyebab dari log: GUI worker menghabiskan ~5 menit pada Antigravity, ~5 menit pada VS Code, lalu gagal pada CapCut karena PowerShell 5.1 menghasilkan native argument `install--id`. Akibat rethrow CapCut, task GUI berhenti sebelum Shotcut/MT4/MT5. CLI worker menghabiskan waktu pada npm OmniRoute dan dihentikan setelah 12 menit, sehingga Codex, Claude, Hermes, OpenClaw dan OpenCode tidak mendapat kesempatan selesai. ArtCraft mengembalikan error binary missing setelah MSI task.
+
+Perbaikan: instalasi Shotcut/MT4/MT5 diprioritaskan sebelum IDE/CapCut; CapCut mengirim argumen native eksplisit, tanpa variabel otomatis `$args`; kegagalan optional app tidak memutus grup; OmniRoute Desktop (rilis resmi portabel) tidak lagi membutuhkan paket npm dengan native build berat; npm sekarang punya batas waktu per paket (165s) agar tidak menghabiskan waktu semua CLI; dan grup memiliki batas waktu lebih realistis untuk pilihan `both/all`, dengan audit executable tetap menjadi ukuran sebenarnya. Belum ada run baru yang memverifikasi seluruh pemasangan.

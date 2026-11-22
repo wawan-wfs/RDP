@@ -60,7 +60,7 @@ def candidates(c, env=os.environ):
       'MetaTrader 4':[pf/'MetaTrader 4/terminal.exe',p86/'MetaTrader 4/terminal.exe',pf/'Exness MT4/terminal.exe'],
       'MetaTrader 5':[pf/'MetaTrader 5/terminal64.exe',pf/'MetaTrader 5/terminal.exe',p86/'MetaTrader 5/terminal64.exe',pf/'Exness MT5/terminal64.exe'],
       '9Router':[common/'9router.cmd',home/'AppData/Roaming/npm/9router.cmd'],
-      'OmniRoute':[common/'omniroute.cmd',home/'AppData/Roaming/npm/omniroute.cmd'],
+      'OmniRoute':[programs/'WFS-Apps/OmniRoute/OmniRoute.exe',common/'omniroute.cmd',home/'AppData/Roaming/npm/omniroute.cmd'],
       'Codex CLI':[common/'codex.cmd',home/'AppData/Roaming/npm/codex.cmd'],
       'Claude Code':[home/'.local/bin/claude.exe',common/'claude.cmd',pf/'ClaudeCode/claude.exe'],
       'Hermes':[home/'.local/bin/hermes.exe',loc/'hermes/bin/hermes.exe'],
@@ -78,7 +78,7 @@ def inspect(c, exists=lambda p:p.is_file(), env=os.environ):
         found=next((str(p) for p in paths.get(name,[]) if exists(p)),None)
         if found:
             # Executable exists but GUI app launch inside RDP has not been confirmed.
-            state='installed' if name in ('Chrome','WinRAR','Node.js','VS Code','Shotcut','MetaTrader 4','MetaTrader 5','CapCut','ArtCraft Launcher') else 'configured'
+            state='installed' if name in ('Chrome','WinRAR','Node.js','VS Code','Shotcut','MetaTrader 4','MetaTrader 5','CapCut','ArtCraft Launcher') or (name=='OmniRoute' and str(found).lower().endswith('.exe')) else 'configured'
             detail='Executable found; interactive login/launch not yet confirmed'
         else:
             state='failed'
