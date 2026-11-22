@@ -24,6 +24,18 @@ class Legacy(unittest.TestCase):
    self.assertIn(name,options)
   self.assertEqual(options['remote_access']['default'],'rdp')
   self.assertEqual(options['rdp_username']['default'],'RDP')
+ def test_access_credentials_are_opt_in(self):
+  options=self.data['on']['workflow_dispatch']['inputs']
+  self.assertIn('reveal_random_password',options)
+  self.assertEqual(options['reveal_random_password']['default'],'false')
+  reveal=next(x for x in self.steps if 'windows.access_credentials' in x.get('run',''))
+  self.assertIn('inputs.reveal_random_password',reveal['if'])
+  self.assertIn('secrets.RDP_PASSWORD',reveal['env']['RDP_PASSWORD'])
+  self.assertIn('secrets.VNC_PASSWORD',reveal['env']['VNC_PASSWORD'])
+  normal=next(x for x in self.steps if 'windows.legacy_dashboard access' in x.get('run',''))
+  self.assertNotIn('RDP_PASSWORD',normal.get('env',{}))
+  self.assertNotIn('VNC_PASSWORD',normal.get('env',{}))
+
  def test_original_app_functions_preserved(self):
   for marker in ('function Install-CapCutForRdp','function Install-ClaudeForRdp','function Install-MetaTrader','function Install-ArtCraft','function Invoke-RdpUserTask','function Add-InstallTask','Google.AntigravityIDE','Google.Chrome','OpenAI.chatgpt','cweijan.vscode-office','hlkenndednhfkekhgcdicdfddnkalmdm','fdpohaocaechififmbbbbbknoalclacl','MetaTrader 5','New-AppShortcut','RDP-Setup'):
    with self.subTest(marker=marker): self.assertIn(marker,self.text)

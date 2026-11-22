@@ -80,3 +80,10 @@ Live run [45006971739](https://github.com/wawan-wfs/RDP/actions/runs/45006971739
 Extra stage markers before task registration, launch, probe, and tailnet relay will pinpoint a future noVNC hang. Cleanup now passes `'True'` / `'False'` string enum values to `Set-NetFirewallProfile -Enabled` instead of PowerShell Booleans (which the Windows cmdlet refused). If the original inbound action was `NotConfigured`, the hosted runner preserves Block and reports this limitation.
 
 This improves failure isolation and diagnostics; it does not establish successful interactive browser control until verified in a new live run.
+
+
+### Informasi koneksi dan password acak (22 November 2026)
+
+Tahap **06c** kini menampilkan log `[WFS/ACCESS]` yang memuat jenis koneksi, IP Tailscale yang terverifikasi, hostname, MagicDNS bila tersedia, perintah RDP fullscreen, username, status dan URL noVNC, serta mode password. Job Summary dan HTML dashboard juga mencantumkan detail koneksi, tetapi tanpa password.
+
+Input baru `reveal_random_password` memiliki default `false` untuk mencegah kebocoran kredensial. Saat `true` dan `rdp_password_mode` atau `vnc_password_mode` dipilih `random_each_run`, step **06c2** menampilkan password untuk endpoint yang benar-benar berstatus `ready` di **Job Summary saja**. Nilai secret sumber tetap tidak dicetak, password fixed-mode tidak ditampilkan, dan password tidak dimasukkan ke log biasa ataupun artefak HTML. Siapa saja dengan izin melihat run GitHub Actions dapat melihat password jika opsi ini diaktifkan.

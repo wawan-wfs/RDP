@@ -126,3 +126,10 @@ The Windows workflow display name is **WFS Windows Remote Workspace** and contin
 The **Summary** and downloaded connection dashboard show the Tailscale IPv4, hostname, `mstsc /v:IP:3389 /f`, RDP username, and private noVNC URL when ready, without exposing passwords. The app audit reports each selected app separately as an executable detected/configured or missing; this does **not** imply that an interactive window was successfully opened. Use `validation_only=true` for code checks and then a new manual workflow run to verify the remote desktop and installed apps.
 
 Official upstream references: [ArtCraft releases](https://github.com/storytold/craft-launcher/releases), [OmniRoute releases](https://github.com/cheaper-inference/OmniRoute/releases), [MetaTrader 5 silent installation](https://www.metatrader5.com/en/terminal/help/start_advanced/installation).
+
+
+### Detail akses Windows: log dan password sesi acak
+
+Lihat step **06c · Publish connection dashboard before apps** untuk blok `[WFS/ACCESS]`: mode RDP/noVNC, IP Tailscale, hostname + MagicDNS bila tersedia, `mstsc /v:IP:3389 /f`, username `RDP`, status metode dan URL noVNC. Bagian Job Summary dan dashboard HTML juga memuat alamat yang sudah diverifikasi.
+
+Password tidak ditulis ke log biasa. Jika menggunakan `random_each_run` dan menghendaki password sesi ditampilkan, saat **Run workflow** centang **`reveal_random_password=true`**. Step **06c2** menaruh password turunan sesi hanya di Job Summary untuk metode yang telah ready. **Peringatan:** siapa pun dengan izin melihat run GitHub Actions mungkin dapat membaca password itu. Default `false`; untuk `same_from_secret`, tidak ada password yang dibuka.

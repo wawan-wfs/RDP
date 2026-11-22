@@ -10,6 +10,7 @@ class Conn(unittest.TestCase):
   self.assertIn('mstsc /v:100.77.8.9:3389 /f',md)
   self.assertIn('Tailscale IPv4',html)
   self.assertIn('rdp-runner',html)
+  self.assertIn('Mode password RDP',md)
   self.assertNotIn('RDP_PASSWORD=',md)
  def test_public_ip_not_shown(self):
   cfg={'hostname':'rdp-runner','remote_access':'rdp','rdp_username':'RDP'}
