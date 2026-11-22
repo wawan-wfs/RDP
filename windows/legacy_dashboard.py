@@ -65,11 +65,26 @@ def clean_md(value:str)->str:
     return escape(value,quote=False).replace('|','&#124;').replace('\n',' ')
 
 
+def tailnet_ipv4(rows):
+    """Extract a Tailscale-only IPv4; never trust a public address in a link."""
+    for name, state, detail in rows:
+        if name != 'Tailnet' or state != 'ready':
+            continue
+        for token in re.findall(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', detail):
+            if private_v4(token):
+                return token
+    return ''
+
+
 def content(stage:str, cfg:dict, rows:list, outcomes:dict, run_id:str, attempt:str):
     entries={name:(status,detail) for name,status,detail in rows}
     ready=any(entries.get(x,('',))[0]=='ready' for x in ('Windows RDP','Windows noVNC'))
     has_rdp=entries.get('Windows RDP',('',))[0]=='ready'
     has_web=entries.get('Windows noVNC',('',))[0]=='ready'
+    private_ip=tailnet_ipv4(rows)
+    if not private_ip and (has_rdp or has_web): ready=False
+    rdp_command=f'mstsc /v:{private_ip}:3389 /f' if private_ip and has_rdp else ''
+    vnc_url=safe_endpoint(entries['Windows noVNC'][1]) if has_web else ''
     headline=('READY' if ready else 'SETUP FAILED') if stage=='access' else 'INSTALLATION SNAPSHOT'
     priority=[name for name in ('Tailnet','Windows RDP','Windows noVNC') if name in entries]
     ordered=[(n,*entries[n]) for n in priority]+[(n,s,d) for n,s,d in rows if n not in priority]
@@ -100,7 +115,14 @@ def content(stage:str, cfg:dict, rows:list, outcomes:dict, run_id:str, attempt:s
         # Prevent markdown injection and leaking credential-looking info from future status format.
         summary.append(f'| {clean_md(n)} | **{clean_md(s)}** | {clean_md(d)} |')
     if stage=='access':
-        summary+=['','## Connection instructions','',
+        summary+=['','## 🔗 Detail koneksi (tanpa password)','',
+                  '| Metode | Alamat / perintah |','|---|---|',
+                  f'| Hostname Tailscale | `{clean_md(str(cfg.get("hostname","rdp-runner")))}` |',
+                  f'| IP Tailscale (IPv4) | `{clean_md(private_ip) if private_ip else "Belum siap"}` |',
+                  f'| Windows RDP | `{clean_md(rdp_command) if rdp_command else "Belum siap"}` |',
+                  f'| noVNC web | {f"[Buka noVNC]({vnc_url})" if vnc_url else "Belum siap / tidak dipilih"} |',
+                  f'| Username RDP | `{clean_md(str(cfg.get("rdp_username","RDP")))}` |',
+                  '','## Connection instructions','',
                   'Connect your client to the **same Tailscale network**. Use the private Tailscale IPv4 in the Tailnet status above.',
                   'For RDP, run `mstsc /f` and enter the private Tailscale IP, with the user above and the password from `RDP_PASSWORD` (or its per-run derivation).',
                   'For noVNC, use the private browser link shown in Windows noVNC status. VNC authentication may use the compatibility password documented in README.',
@@ -120,7 +142,9 @@ p{{color:var(--muted);margin:7px 0 0}}.stats{{display:grid;grid-template-columns
 .ok{{color:var(--green)}}.bad{{color:var(--red)}}.warn{{color:var(--yellow)}}.mid{{color:var(--blue)}}.muted{{color:var(--muted)}}.btn{{display:inline-block;margin:20px 0 0;border:1px solid #62c9ff;color:#e7f6ff;text-decoration:none;padding:11px 16px;border-radius:10px;background:#17486f}}
 .footer{{margin-top:26px;border-top:1px solid var(--line);padding-top:15px;color:var(--muted);font:12px ui-monospace,monospace}}@media(max-width:680px){{main{{padding:17px}}header.hero{{padding:23px}}.stats{{grid-template-columns:repeat(2,1fr)}}.grid{{grid-template-columns:1fr}}}}</style></head>
 <body><main><header class="hero"><div class="eyebrow">WFS / REMOTE WORKSPACE · WINDOWS</div><h1>{escape(TITLES[stage])}</h1>
-<p>{escape(headline)} · {escape(str(cfg.get('windows_version','unknown')))} · {escape(str(cfg.get('remote_access','rdp')).upper())} · {escape(str(cfg.get('hostname','rdp-runner')))}</p>{link}</header>
+<p>{escape(headline)} · {escape(str(cfg.get('windows_version','unknown')))} · {escape(str(cfg.get('remote_access','rdp')).upper())} · {escape(str(cfg.get('hostname','rdp-runner')))}</p>
+<p>Tailscale IPv4: <strong>{escape(private_ip or 'Not ready')}</strong> · Hostname: <strong>{escape(str(cfg.get('hostname','rdp-runner')))}</strong></p>
+<p>RDP: <code>{escape(rdp_command or 'Not ready')}</code> · User: <code>{escape(str(cfg.get('rdp_username','RDP')))}</code></p>{link}</header>
 <section class="stats"><div class="stat"><b>{stats['ready']+stats['installed']}</b><small>Verified ready</small></div><div class="stat"><b>{stats['configured']+stats['attempted']}</b><small>Configured / attempted</small></div>
 <div class="stat"><b>{stats['failed']+stats['timed out']}</b><small>Failed</small></div><div class="stat"><b>{stats['warning']+stats['pending interactive']}</b><small>Needs attention</small></div></section>
 <section class="grid" aria-label="Status details">{''.join(blocks)}</section>

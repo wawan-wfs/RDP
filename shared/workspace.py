@@ -78,7 +78,10 @@ def config(os_name, d, run_id="local", attempt="1", runner_arch=""):
         c["desktop_profile"] = pick(d, "desktop_profile", ("balanced", "responsive"), "balanced")
         browser = c["remote_access"] in {"novnc", "both"}
         hosted = c["runner_type"] == "github"
-        c["windows_fallback"] = hosted and browser and c["windows_version"] == "windows-11-arm"
+        # Prefer x64 when optional desktop applications or the browser bridge are requested.
+        # A bare ARM64 RDP session remains available if optional apps are deselected.
+        selected_apps = any(c[key] != "none" for key in APP_INPUTS) or c["install_artcraft"]
+        c["windows_fallback"] = hosted and c["windows_version"] == "windows-11-arm" and (browser or selected_apps)
         c["windows_effective_runner"] = (
             WINDOWS_BROWSER_FALLBACK if c["windows_fallback"] else c["windows_version"]
         ) if hosted else "self-hosted / wfs-windows"
@@ -199,7 +202,7 @@ def main(args=None):
             windows_log("Session", "configured", f"{cfg['remote_access']} | {cfg['hostname']} | up to {cfg['duration_hours']}h")
             print("::endgroup::", flush=True)
             if cfg["windows_fallback"]:
-                print("::notice title=WFS runner compatibility::Windows 11 ARM64 was requested with noVNC. This run uses Windows Server 2025 x64 to keep the selected access mode.", flush=True)
+                print("::notice title=WFS runner compatibility::Windows 11 ARM64 requested with browser/desktop software. Windows Server 2025 x64 was selected for broader installer compatibility.", flush=True)
     elif u.cmd == "path":
         print(s)
     elif u.cmd == "get":

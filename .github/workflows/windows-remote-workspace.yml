@@ -104,7 +104,7 @@ run-name: "WFS Windows Remote Workspace · ${{ inputs.remote_access }}"
           - "all"
 
       install_artcraft:
-        description: "Install ArtCraft Launcher v0.3.2 (pilih aplikasi suite setelah login RDP)"
+        description: "Install ArtCraft Launcher rilis terbaru (pilih aplikasi suite setelah login RDP)"
         required: true
         default: true
         type: boolean
@@ -187,8 +187,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   secure-rdp:
-    name: 🖥️ Windows RDP with Apps · ${{ inputs.validation_only && 'Validation' || inputs.remote_access }}
-    runs-on: ${{ inputs.runner_type == 'self-hosted' && fromJSON('["self-hosted","wfs-windows"]') || (inputs.windows_version == 'windows-11-arm' && inputs.remote_access != 'rdp' && 'windows-2025') || inputs.windows_version }}
+    name: WFS Windows Remote Workspace · ${{ inputs.validation_only && 'Validation' || inputs.remote_access }}
+    runs-on: ${{ inputs.runner_type == 'self-hosted' && fromJSON('["self-hosted","wfs-windows"]') || (inputs.windows_version == 'windows-11-arm' && (inputs.remote_access != 'rdp' || inputs.ide_choice != 'none' || inputs.editor_choice != 'none' || inputs.metatrader_choice != 'none' || inputs.router_choice != 'none' || inputs.coding_agent_choice != 'none' || inputs.ai_agent_choice != 'none' || inputs.install_artcraft) && 'windows-2025') || inputs.windows_version }}
     timeout-minutes: 360
 
     env:
@@ -232,6 +232,7 @@ jobs:
           python -m pip install -r tests/requirements.txt --disable-pip-version-check
           if ($LASTEXITCODE -ne 0) { throw 'Test requirements failed' }
           python tests/test_windows_legacy.py
+          python tests/test_app_audit.py
           if ($LASTEXITCODE -ne 0) { throw 'Windows legacy regression tests failed' }
           python windows/test_tailnet_ip.py
           if ($LASTEXITCODE -ne 0) { throw 'Tailnet IPv4 tests failed' }
@@ -462,37 +463,29 @@ jobs:
           }
 
           function Install-CapCutForRdp {
-            # Pinned x64 installer and switches from microsoft/winget-pkgs ByteDance.CapCut.
-            $dir = Join-Path $env:ProgramData 'RDP-Setup\CapCut-Installer'
-            New-Item $dir -ItemType Directory -Force | Out-Null
-            $file = Join-Path $dir 'CapCut_9.4.0.4015.exe'
-            $url = 'https://sf16-web-tos-buz.capcutstatic.com/obj/capcut-web-buz-sg/packages/CapCut_9_4_0_4015_capcutpc_0_creatortool.exe'
-            Write-Host '🎬 📥 Downloading CapCut 9.4.0.4015 (per-user installer)...'
-            try {
-              Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing -TimeoutSec 300 -ErrorAction Stop
-              if ((Get-FileHash $file -Algorithm SHA256).Hash -ne '8911B37A756AA8741BE8E0489CD1500CF140968CAFA09832C0FB48FAB0188CE3') { throw '❌ CapCut SHA256 mismatch.' }
-              $mutex = [Threading.Mutex]::new($false, 'Global\RdpWorkflowWingetInstall'); $locked = $false
-              try {
-                try { $locked = $mutex.WaitOne(300000) } catch [Threading.AbandonedMutexException] { $locked = $true }
-                if (-not $locked) { throw '❌ CapCut installer queue timeout.' }
-                $data = Invoke-RdpUserTask -Name CapCut -Context @{ Installer = $file } -TimeoutSeconds 600 -Script {
-                  $dest = Join-Path $env:LOCALAPPDATA 'Programs\CapCut'
-                  $found = Get-ChildItem $dest -Filter CapCut.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-                  if (-not $found) {
-                    $p = Start-Process -FilePath $ctx.Installer -ArgumentList @('/silent_install=1', "/install_path=`"$dest`"") -PassThru -Wait
-                    if ($p.ExitCode -notin @(0,3010)) { throw "CapCut installer exit: $($p.ExitCode)" }
-                    for ($i=0; $i -lt 30 -and -not $found; $i++) {
-                      $found = Get-ChildItem $dest -Filter CapCut.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-                      if (-not $found) { Start-Sleep -Seconds 2 }
-                    }
-                  }
-                  if (-not $found) { throw 'CapCut.exe not found in the RDP profile after installation.' }
-                  [pscustomobject]@{ Executable = $found.FullName; Version = $found.VersionInfo.FileVersion }
-                }
-                "CAPCUT_EXE=$($data.Executable)" | Add-Content $env:GITHUB_ENV -Encoding UTF8
-                Write-Host "✅ CapCut binary detected for RDP: $($data.Executable) ($($data.Version))"
-              } finally { if ($locked) { $mutex.ReleaseMutex() }; $mutex.Dispose() }
-            } finally { Remove-Item $file -Force -ErrorAction SilentlyContinue }
+            # Always resolve the current WinGet catalog, never a hard-pinned 9.4 installer.
+            $wingetPath = (Get-Command winget.exe -ErrorAction SilentlyContinue).Source
+            if (-not $wingetPath) { throw 'CapCut requires WinGet; winget.exe was not found' }
+            $data = Invoke-RdpUserTask -Name CapCutLatest -TimeoutSeconds 300 -Context @{ Winget = $wingetPath } -Script {
+              $roots = @((Join-Path $env:LOCALAPPDATA 'Programs\CapCut'),(Join-Path $env:LOCALAPPDATA 'CapCut'))
+              $exe = @($roots | ForEach-Object { Get-ChildItem $_ -Filter 'CapCut.exe' -Recurse -File -ErrorAction SilentlyContinue } | Select-Object -First 1)[0]
+              $args = if ($exe) { @('upgrade') } else { @('install') }
+              $args += @('--id','ByteDance.CapCut','--exact','--source','winget','--silent','--accept-package-agreements','--accept-source-agreements','--disable-interactivity')
+              # Scope=user ensures the temporary RDP user owns the installation.
+              $fullArgs = @($args) + @('--scope','user')
+              & $ctx.Winget @fullArgs | Out-Host
+              $resultCode = $LASTEXITCODE
+              if ($resultCode -ne 0) {
+                Write-Warning "CapCut user-scope WinGet returned $resultCode; retrying supported default scope once"
+                & $ctx.Winget @args | Out-Host
+                $resultCode = $LASTEXITCODE
+              }
+              $exe = @($roots | ForEach-Object { Get-ChildItem $_ -Filter 'CapCut.exe' -Recurse -File -ErrorAction SilentlyContinue } | Select-Object -First 1)[0]
+              if (-not $exe) { throw "CapCut not found in RDP profile after latest WinGet attempt (exit $resultCode)" }
+              [pscustomobject]@{ Executable = $exe.FullName; Version = $exe.VersionInfo.FileVersion }
+            }
+            "CAPCUT_EXE=$($data.Executable)" | Add-Content $env:GITHUB_ENV -Encoding UTF8
+            Write-Host "[WFS/APP] CapCut executable for RDP: $($data.Executable) (version $($data.Version))"
           }
 
           function Install-ClaudeForRdp {
@@ -725,7 +718,7 @@ jobs:
             $prefix = Join-Path $env:ProgramData 'RDP-Tools\npm'
             New-Item $prefix -ItemType Directory -Force | Out-Null
             $command = switch ($PackageName) {
-              '@openai/codex' { 'codex' }; '9router' { '9router' }; 'omniroute' { 'omniroute' }; 'opencode-ai' { 'opencode' }
+              '@openai/codex' { 'codex' }; '@anthropic-ai/claude-code' { 'claude' }; '9router' { '9router' }; 'omniroute' { 'omniroute' }; 'opencode-ai' { 'opencode' }
               default { throw "Unknown npm executable mapping: $PackageName" }
             }
             if (-not $npm -or -not (Test-Path $npm)) { throw '❌ npm.cmd is not available.' }
@@ -791,14 +784,19 @@ jobs:
               throw "❌ MetaTrader $Version installer signature is not valid: $($signature.Status)."
             }
 
-            $installerExit = Invoke-BoundedInstaller -FilePath $installerPath -Arguments @('/auto') -TimeoutSeconds 300
+            $folderName = if ($Version -eq 'mt4') { 'MetaTrader 4' } else { 'MetaTrader 5' }
+            $targetDir = Join-Path $env:ProgramFiles $folderName
+            $installerExit = Invoke-BoundedInstaller -FilePath $installerPath -Arguments @('/auto',('/path:"{0}"' -f $targetDir)) -TimeoutSeconds 190
             Remove-Item -LiteralPath $installerPath -Force -ErrorAction SilentlyContinue
 
             if ($installerExit -ne 0) {
               throw "❌ MetaTrader $Version installer exited with code $($installerExit)."
             }
 
-            Write-Host "📈 ✅ MetaTrader $Version installer completed."
+            $names = if ($Version -eq 'mt4') { @('terminal.exe') } else { @('terminal64.exe','terminal.exe') }
+            $terminal = @($names | ForEach-Object { Join-Path $targetDir $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1)[0]
+            if (-not $terminal) { throw "MetaTrader $Version setup exited $installerExit but no trading terminal was found in $targetDir" }
+            Write-Host "[WFS/APP] MetaTrader $Version verified: $terminal"
             } finally {
               if ($locked) { $mutex.ReleaseMutex() }
               $mutex.Dispose()
@@ -806,40 +804,49 @@ jobs:
           }
 
           function Install-ArtCraft {
+            # Fetch the latest OFFICIAL release and SHA256SUMS instead of pinning v0.3.2.
+            $api = 'https://api.github.com/repos/storytold/craft-launcher/releases/latest'
+            $headers = @{ 'User-Agent' = 'WFS-RDP-Installer'; Accept = 'application/vnd.github+json' }
+            $release = Invoke-RestMethod -Uri $api -Headers $headers -TimeoutSec 30 -ErrorAction Stop
+            if ([string]$release.tag_name -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'ArtCraft release tag invalid' }
+            $msiAsset = @($release.assets | Where-Object { $_.name -match '^artcraft-launcher-[0-9.]+-windows-x64\.msi$' } | Select-Object -First 1)[0]
+            $sumAsset = @($release.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' } | Select-Object -First 1)[0]
+            if (-not $msiAsset -or -not $sumAsset) { throw 'ArtCraft latest release missing MSI or SHA256SUMS.txt' }
+            if (([uri]$msiAsset.browser_download_url).Host -ne 'github.com') { throw 'ArtCraft MSI must originate from GitHub' }
             $dir = Join-Path $env:ProgramData 'RDP-Setup\ArtCraft-Launcher-Installer'
-            New-Item $dir -ItemType Directory -Force | Out-Null
-            $file = Join-Path $dir 'artcraft-launcher-0.3.2-windows-x64.msi'
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $msiPath = Join-Path $dir $msiAsset.name
+            $sumPath = Join-Path $dir 'SHA256SUMS.txt'
             try {
-              Write-Host '🎨 📥 Downloading ArtCraft Launcher v0.3.2 MSI...'
-              Invoke-WebRequest -Uri 'https://github.com/storytold/craft-launcher/releases/download/v0.3.2/artcraft-launcher-0.3.2-windows-x64.msi' -OutFile $file -UseBasicParsing -TimeoutSec 180 -ErrorAction Stop
-              if ((Get-FileHash $file -Algorithm SHA256).Hash -ne 'e1d147912aec78b40dfd2f3caf7e8a9fa887a285451cfc221f16a4f3a484065c') { throw '❌ ArtCraft Launcher MSI SHA256 mismatch.' }
-              $mutex = [Threading.Mutex]::new($false, 'Global\RdpWorkflowWingetInstall'); $locked = $false
-              try {
-                try { $locked = $mutex.WaitOne(300000) } catch [Threading.AbandonedMutexException] { $locked = $true }
-                if (-not $locked) { throw '❌ ArtCraft installer queue timeout.' }
-                $data = Invoke-RdpUserTask -Name ArtCraft -TimeoutSeconds 450 -Context @{ Installer = $file } -Script {
-                  $exe = Join-Path $env:LOCALAPPDATA 'Programs\ArtCraft Launcher\artcraft-launcher.exe'
-                  if (-not (Test-Path $exe)) {
-                    $log = Join-Path $PSScriptRoot 'msi.log'
-                    $args = @('/i', "`"$($ctx.Installer)`"", '/qn', '/norestart', 'INSTALLDESKTOPSHORTCUT=1', '/L*v', "`"$log`"")
-                    $p = Start-Process "$env:SystemRoot\System32\msiexec.exe" -ArgumentList $args -PassThru -Wait
-                    if ($p.ExitCode -notin @(0,3010,1641)) {
-                      if (Test-Path $log) { Get-Content $log -Tail 40 | Out-Host }
-                      if ($p.ExitCode -eq 1625) {
-                      Write-Host '❌ MSI 1625: installation blocked by policy; inspect the MSI log and effective application-control policies.'
-                      Get-WinEvent -FilterHashtable @{ LogName='Application'; ProviderName='MsiInstaller' } -MaxEvents 5 -ErrorAction SilentlyContinue |
-                        Select-Object TimeCreated, Id, Message | Format-List | Out-Host
-                    }
-                    throw "ArtCraft MSI exit: $($p.ExitCode)"
-                    }
-                  }
-                  if (-not (Test-Path $exe)) { throw 'ArtCraft Launcher executable missing from RDP profile.' }
-                  [pscustomobject]@{ Executable = $exe; Version = (Get-Item $exe).VersionInfo.FileVersion }
+              Write-Host "[WFS/APP] ArtCraft latest release: $($release.tag_name)"
+              Invoke-WebRequest -Uri $msiAsset.browser_download_url -OutFile $msiPath -TimeoutSec 100 -ErrorAction Stop
+              Invoke-WebRequest -Uri $sumAsset.browser_download_url -OutFile $sumPath -TimeoutSec 40 -ErrorAction Stop
+              $checksumLine = @(Get-Content $sumPath | Where-Object { $_ -match [regex]::Escape($msiAsset.name) } | Select-Object -First 1)[0]
+              if (-not $checksumLine -or $checksumLine -notmatch '^([0-9a-fA-F]{64})\s+') { throw 'No matching release SHA256 checksum' }
+              $hash = (Get-FileHash -Path $msiPath -Algorithm SHA256).Hash
+              if ($hash -ne $Matches[1]) { throw 'ArtCraft latest release checksum mismatch' }
+              $data = Invoke-RdpUserTask -Name ArtCraftLatest -TimeoutSeconds 300 -Context @{ Installer=$msiPath; Version=$release.tag_name.TrimStart('v') } -Script {
+                $candidates = @((Join-Path $env:LOCALAPPDATA 'Programs\ArtCraft Launcher\artcraft-launcher.exe'),(Join-Path $env:ProgramFiles 'ArtCraft Launcher\artcraft-launcher.exe'))
+                $exe = @($candidates | Where-Object { Test-Path $_ } | Select-Object -First 1)[0]
+                $currentVersion = [version]'0.0.0.0'
+                if ($exe) {
+                  try { $currentVersion = [version]((Get-Item $exe).VersionInfo.FileVersion -replace '[^0-9.].*$','') }
+                  catch { $currentVersion = [version]'0.0.0.0' }
                 }
-                "ARTCRAFT_EXE=$($data.Executable)" | Add-Content $env:GITHUB_ENV -Encoding UTF8
-                Write-Host "✅ ArtCraft Launcher binary detected for RDP: $($data.Executable)"
-              } finally { if ($locked) { $mutex.ReleaseMutex() }; $mutex.Dispose() }
-            } finally { Remove-Item $file -Force -ErrorAction SilentlyContinue }
+                if (-not $exe -or $currentVersion -lt [version]$ctx.Version) {
+                  $args = @('/i',('"{0}"' -f $ctx.Installer),'/qn','/norestart','INSTALLDESKTOPSHORTCUT=0')
+                  $process = Start-Process "$env:SystemRoot\System32\msiexec.exe" -ArgumentList $args -PassThru -Wait
+                  if ($process.ExitCode -notin @(0,3010,1641)) { throw "ArtCraft MSI exit code $($process.ExitCode)" }
+                }
+                $exe = @($candidates | Where-Object { Test-Path $_ } | Select-Object -First 1)[0]
+                if (-not $exe) { throw 'Latest ArtCraft Launcher executable absent after installation' }
+                [pscustomobject]@{ Executable=$exe; Version=(Get-Item $exe).VersionInfo.FileVersion }
+              }
+              "ARTCRAFT_EXE=$($data.Executable)" | Add-Content $env:GITHUB_ENV -Encoding UTF8
+              Write-Host "[WFS/APP] ArtCraft latest executable: $($data.Executable) ($($data.Version))"
+            } finally {
+              Remove-Item $msiPath,$sumPath -Force -ErrorAction SilentlyContinue
+            }
           }
 
           function Install-OfficialPowerShellApp {
@@ -1138,7 +1145,12 @@ jobs:
           # IDE choice: default none.
           if ($wantedAntigravity) {
             Invoke-OptionalInstall 'Antigravity IDE' {
-              Install-WingetPackage -Id "Google.AntigravityIDE" -Name "Antigravity IDE" -Optional | Out-Null
+              $installed = Install-WingetPackage -Id "Google.AntigravityIDE" -Name "Antigravity IDE" -Scope 'machine' -Optional
+              if (-not $installed) {
+                $installed = Install-WingetPackage -Id "Google.AntigravityIDE" -Name "Antigravity IDE" -Optional
+              }
+              if (-not $installed) { throw 'Antigravity IDE was not installed by either supported WinGet scope' }
+              Write-Host '[WFS/APP] Antigravity package present; RDP-profile staging will be verified separately.'
             }
           } else {
             Write-Host "⏭️ Skipping Antigravity IDE because ide_choice=$ideChoice"
@@ -1146,7 +1158,21 @@ jobs:
 
           if ($wantedVSCode) {
             Invoke-OptionalInstall 'Visual Studio Code' {
-              Install-WingetPackage -Id "Microsoft.VisualStudioCode" -Name "Visual Studio Code" -Scope "machine" -Optional | Out-Null
+              $ok = Install-WingetPackage -Id "Microsoft.VisualStudioCode" -Name "Visual Studio Code" -Scope "machine" -Optional
+              $code = Join-Path $env:ProgramFiles 'Microsoft VS Code\Code.exe'
+              if (-not (Test-Path $code)) {
+                Write-Warning 'WinGet did not produce machine-wide VS Code; trying signed official system installer.'
+                $installer = Join-Path $env:TEMP 'wfs-vscode-system-setup.exe'
+                try {
+                  Invoke-WebRequest 'https://update.code.visualstudio.com/latest/win32-x64/stable' -OutFile $installer -TimeoutSec 110 -ErrorAction Stop
+                  $signature = Get-AuthenticodeSignature -FilePath $installer
+                  if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') { throw 'VS Code installer is not signed by Microsoft' }
+                  $exitCode = Invoke-BoundedInstaller -FilePath $installer -Arguments @('/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/MERGETASKS=!runcode') -TimeoutSeconds 160
+                  if ($exitCode -notin @(0,3010)) { throw "VS Code system installer failed: $exitCode" }
+                } finally { Remove-Item $installer -Force -ErrorAction SilentlyContinue }
+              }
+              if (-not (Test-Path $code)) { throw 'Code.exe not found after both installation methods' }
+              Write-Host "[WFS/APP] VS Code verified: $code"
             }
           } else {
             Write-Host "⏭️ Skipping Visual Studio Code because ide_choice=$ideChoice"
@@ -1243,7 +1269,10 @@ jobs:
 
           if ($codingAgentChoice -in @('claude', 'both')) {
             Invoke-OptionalInstall 'Claude Code' {
-              Install-ClaudeForRdp
+              try { Install-ClaudeForRdp } catch {
+                Write-Warning ('Claude native install failed; using official npm package: '+$_.Exception.Message)
+                Install-NpmGlobalPackage -PackageName '@anthropic-ai/claude-code'
+              }
             }
           }
 
@@ -1290,7 +1319,7 @@ jobs:
             while ($pending.Count -gt 0) {
               foreach ($task in @($pending.ToArray())) {
                 Receive-Job -Job $task.Job -ErrorAction Continue
-                $timedOut = $task.Job.State -in @('Running', 'NotStarted') -and ([datetime]::UtcNow - $task.Started).TotalSeconds -gt 1200
+                $timedOut = $task.Job.State -in @('Running', 'NotStarted') -and ([datetime]::UtcNow - $task.Started).TotalSeconds -gt 720
                 if ($timedOut) {
                   # Kill worker AND descendants, rather than leaving installer processes running.
                   $pidFile = Join-Path $task.Dir 'pid.txt'
@@ -1299,7 +1328,7 @@ jobs:
                     & taskkill.exe /PID $workerPid /T /F 2>&1 | Out-Host
                   }
                   Stop-Job -Job $task.Job -ErrorAction SilentlyContinue
-                  Write-Warning "⚠️ Group $($task.Name) exceeded 20 minutes and was terminated."
+                  Write-Warning "⚠️ Group $($task.Name) exceeded 12 minutes and was terminated."
                 }
                 if ($task.Job.State -notin @('Running', 'NotStarted')) {
                   Receive-Job -Job $task.Job -ErrorAction Continue
@@ -1543,7 +1572,6 @@ jobs:
           # Force install Chrome extensions for all users via Chrome enterprise policy
           $extensionUpdateUrl = "https://clients2.google.com/service/update2/crx"
           $chromePolicyPath = "HKLM:\Software\Policies\Google\Chrome\ExtensionInstallForcelist"
-
           New-Item -Path $chromePolicyPath -Force | Out-Null
 
           $chromeExtensions = @(
@@ -1629,7 +1657,7 @@ jobs:
           $antigravitySourceExe = Resolve-AntigravityIdeExe
 
           if (-not $antigravitySourceExe) {
-            Write-Warning "⚠️ Antigravity IDE executable was not found. RDP user copy and launcher will still be prepared, but shortcut may not work until the package path is corrected."
+            Write-Warning "Antigravity IDE executable not found; a shortcut is not proof of installation."
           } else {
             $antigravitySourceDir = Split-Path $antigravitySourceExe -Parent
             Write-Host "Found Antigravity IDE source: $antigravitySourceDir"
@@ -1676,16 +1704,7 @@ jobs:
           }
 
           if (Test-Path $destExe) {
-            $extensions = @(
-              "OpenAI.chatgpt",
-              "cweijan.vscode-office"
-            )
-
-            foreach ($extension in $extensions) {
-              & $destExe --install-extension $extension --force
-            }
-
-            Start-Process -FilePath $destExe
+            Start-Process -FilePath $destExe -WorkingDirectory $destRoot
           } else {
             Write-Host "Antigravity IDE executable not found after copy: $destExe"
             exit 1
@@ -1755,6 +1774,11 @@ jobs:
           }
 
           Write-Host "✅ Antigravity IDE RDP preparation completed"
+      - name: '13b · 🧭 Install verified OmniRoute desktop portable'
+        if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
+        shell: pwsh
+        continue-on-error: true
+        run: ./windows/omniroute_desktop.ps1
       - name: '14 · 🧷 Publish real app shortcuts to RDP desktop'
         if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
         continue-on-error: true
@@ -1784,10 +1808,9 @@ jobs:
           $shortcutDirectories = @($publicDesktop, $commonStartMenu)
 
           $rdpProfile = Join-Path "C:\Users" $env:RDP_USER
-          if (Test-Path $rdpProfile) {
-            $shortcutDirectories += Join-Path $rdpProfile "Desktop"
-            $shortcutDirectories += Join-Path $rdpProfile "AppData\Roaming\Microsoft\Windows\Start Menu\Programs"
-          }
+          # Public Desktop already appears in RDP user desktop. Do not create another
+          # file with the same shortcut name in C:\Users\RDP\Desktop.
+
 
           $shortcutDirectories = $shortcutDirectories |
             Where-Object { $_ -and $_.Trim() } |
@@ -1852,6 +1875,12 @@ jobs:
             }
 
             $shell = New-Object -ComObject WScript.Shell
+            # Vendor installers sometimes create user shortcuts; remove duplicate only
+            # from this newly created temporary RDP profile, never from other users.
+            if ($env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+              $duplicate = Join-Path $rdpProfile "Desktop\$Name.lnk"
+              if (Test-Path $duplicate) { Remove-Item -LiteralPath $duplicate -Force -ErrorAction SilentlyContinue }
+            }
 
             foreach ($dir in $shortcutDirectories) {
               $shortcutPath = Join-Path $dir "$Name.lnk"
@@ -2016,7 +2045,7 @@ jobs:
             -ExecutableNames @("opencode.cmd", "opencode.ps1")
 
           $omniRouteTarget = Resolve-AppTarget `
-            -CandidatePaths @("$runnerRoamingNpm\omniroute.cmd") `
+            -CandidatePaths @($env:OMNIROUTE_EXE, "$env:ProgramData\WFS-Apps\OmniRoute\OmniRoute.exe", "$runnerRoamingNpm\omniroute.cmd") `
             -SearchRoots @($runnerRoamingNpm) `
             -ExecutableNames @("omniroute.cmd", "omniroute.ps1")
 
@@ -2083,7 +2112,11 @@ jobs:
 
           if ($routerChoice -in @("omniroute", "both")) {
             if ($omniRouteTarget) {
-              New-AppShortcut -Name "OmniRoute" -TargetPath $powershellTarget -Arguments "-NoExit -ExecutionPolicy Bypass -Command `"& '$omniRouteTarget'`"" -WorkingDirectory $rdpProfile
+              if ($omniRouteTarget -match '(?i)OmniRoute\.exe$') {
+                New-AppShortcut -Name "OmniRoute" -TargetPath $omniRouteTarget -WorkingDirectory (Split-Path $omniRouteTarget -Parent)
+              } else {
+                New-AppShortcut -Name "OmniRoute CLI" -TargetPath $powershellTarget -Arguments "-NoExit -ExecutionPolicy Bypass -Command `"& '$omniRouteTarget'`"" -WorkingDirectory $rdpProfile
+              }
             } else {
               Write-Warning "⚠️ OmniRoute was selected but its executable was not found; shortcut skipped."
             }
@@ -2192,7 +2225,7 @@ jobs:
             }
 
             if ($Detected) {
-              return "✅ Ready"
+              return "✅ Binary detected (launch unverified)"
             }
 
             return "⚠️ Check logs"
@@ -2344,7 +2377,7 @@ jobs:
           Add-Row $appRows "Hermes Agent" (Get-InstallStatus $wantedHermes $hermesDetected) "Official non-interactive installer"
           Add-Row $appRows "OpenClaw" (Get-InstallStatus $wantedOpenClaw $openclawDetected) "Official installer; onboarding skipped"
           Add-Row $appRows "OpenCode" (Get-InstallStatus $wantedOpenCode $openCodeDetected) "npm package ``opencode-ai``"
-          Add-Row $appRows "ArtCraft Launcher" (Get-InstallStatus $installArtCraft $artCraftDetected) "Official v0.3.2 MSI; choose suite apps inside launcher"
+          Add-Row $appRows "ArtCraft Launcher" (Get-InstallStatus $installArtCraft $artCraftDetected) "Latest official GitHub release with SHA256 verification; desktop app launch still requires RDP login"
 
           $extensionRows = [System.Collections.Generic.List[string]]::new()
           $extensionRows.Add("| Target | Extension / Feature | Status |") | Out-Null
@@ -2440,6 +2473,11 @@ jobs:
           $summaryLines.Add("Saat runtime selesai, gagal, atau workflow masuk cleanup, step terakhir akan mencoba menjalankan ``tailscale logout`` otomatis.") | Out-Null
 
           $summaryLines -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+      - name: '15b · 🔬 Audit installed apps and versions (no false success)'
+        if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
+        shell: pwsh
+        continue-on-error: true
+        run: python -m windows.app_audit
       - name: '16 · 🎨 Publish app status and HTML dashboard'
         if: ${{ !cancelled() && !inputs.validation_only && steps.remote.outcome == 'success' }}
         shell: pwsh

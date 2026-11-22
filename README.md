@@ -117,3 +117,12 @@ Untuk tes native Windows tambahkan `pwsh -File tests/verify-windows.ps1`. Prosed
 
 
 > **Windows Legacy Base Enhanced:** Workflow Windows sekarang berbasis YAML `windows-rdp-with-apps (6).yml` yang diunggah, termasuk pilihan aplikasi/shortcut yang lengkap dan tambahan RDP/noVNC, dashboard, serta cleanup. [Lihat panduan dan batasan pengujian](docs/WINDOWS_LEGACY_BASE.md).
+
+
+### Windows app repair / app status (22 November 2026)
+
+The Windows workflow display name is **WFS Windows Remote Workspace** and continues to use the legacy application workflow as its base. It now favors Windows 2025 x64 for desktop app selections even when Windows 11 ARM is requested, resolves ArtCraft from the latest verified official release, attempts current CapCut via WinGet under the RDP user, verifies MT4/MT5 executables, adds VS Code/Claude fallback installers, and checks a verified OmniRoute portable desktop alongside the CLI. Duplicate desktop shortcuts have been reduced.
+
+The **Summary** and downloaded connection dashboard show the Tailscale IPv4, hostname, `mstsc /v:IP:3389 /f`, RDP username, and private noVNC URL when ready, without exposing passwords. The app audit reports each selected app separately as an executable detected/configured or missing; this does **not** imply that an interactive window was successfully opened. Use `validation_only=true` for code checks and then a new manual workflow run to verify the remote desktop and installed apps.
+
+Official upstream references: [ArtCraft releases](https://github.com/storytold/craft-launcher/releases), [OmniRoute releases](https://github.com/cheaper-inference/OmniRoute/releases), [MetaTrader 5 silent installation](https://www.metatrader5.com/en/terminal/help/start_advanced/installation).

@@ -100,7 +100,9 @@ class Configuration(unittest.TestCase):
                                  (mode, "windows-11-arm", "windows-2025", True))
                 with self.assertRaisesRegex(ValueError, "needs an x64 runner"):
                     workspace.config("windows", requested | {"runner_type": "self-hosted"}, runner_arch="ARM64")
-        arm = workspace.config("windows", {"windows_version": "windows-11-arm", "remote_access": "rdp"}, runner_arch="ARM64")
+        arm = workspace.config("windows", {"windows_version": "windows-11-arm", "remote_access": "rdp", "install_artcraft": False}, runner_arch="ARM64")
+        desktop = workspace.config("windows", {"windows_version": "windows-11-arm", "remote_access": "rdp", "ide_choice": "both"}, runner_arch="X64")
+        self.assertEqual((desktop["windows_effective_runner"], desktop["windows_fallback"]), ("windows-2025", True))
         self.assertEqual((arm["windows_effective_runner"], arm["windows_fallback"]), ("windows-11-arm", False))
         x64 = workspace.config("windows", {"windows_version": "windows-2022", "remote_access": "both"}, runner_arch="X64")
         self.assertEqual((x64["windows_effective_runner"], x64["windows_fallback"]), ("windows-2022", False))
@@ -179,7 +181,9 @@ class Configuration(unittest.TestCase):
             self.assertEqual(next(x for x in job["steps"] if x.get("id") == app_id)["continue-on-error"], "true")
             self.assertIn("always()", job["steps"][-1]["if"])
             if is_windows:
-                self.assertIn(f"inputs.windows_version == 'windows-11-arm' && inputs.remote_access != 'rdp' && '{workspace.WINDOWS_BROWSER_FALLBACK}'", job["runs-on"])
+                self.assertIn("inputs.windows_version == 'windows-11-arm'", job["runs-on"])
+                self.assertIn("inputs.ide_choice != 'none'", job["runs-on"])
+                self.assertIn(workspace.WINDOWS_BROWSER_FALLBACK, job["runs-on"])
                 self.assertLess(ids.index("preflight"), ids.index("remote"))
                 tailnet = next(x for x in job["steps"] if x.get("id") == "tailnet")
                 self.assertRegex(tailnet["uses"], r"^tailscale/github-action@[0-9a-f]{40}$")

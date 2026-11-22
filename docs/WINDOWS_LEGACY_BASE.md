@@ -57,3 +57,18 @@ For the per-run mode, compute the HMAC using the run ID and role; the derivation
 The latest run succeeded at Tailscale and created the temporary RDP account, but failed because a Windows Firewall profile did not report the required inbound-blocking default. On **disposable GitHub-hosted** Windows runners only, the RDP setup now snapshots the existing profile settings, temporarily enables all profiles with default inbound **Block**, verifies the effective ActiveStore state, and restores the original locally-restorable settings during cleanup. On self-hosted machines, the workflow continues to **fail closed** with a diagnostic rather than altering global firewall policy automatically. RDP port 3389 remains restricted to the assigned Tailscale local IP and Tailnet remote addresses, with NLA and TLS retained.
 
 `NotConfigured` is not a restorable local value for `Set-NetFirewallProfile`; if an original profile had this GPO-only value, the cleanup preserves the stricter inbound Block state on the disposable hosted runner and logs a warning. No public RDP listener is intentionally opened. This code change has not been verified with a new live GitHub Actions RDP session.
+
+
+### App availability and workflow identity batch · 22 November 2026
+
+- The Actions display name is restored to **WFS Windows Remote Workspace**, while the user-provided legacy YAML remains the implementation base.
+- Windows ARM64 is retained for RDP-only sessions without optional apps. If desktop apps, AI tools, ArtCraft, or browser desktop are selected, hosted runs automatically use **Windows 2025 x64** for broader installer compatibility; the preflight notice displays the fallback.
+- The prior CapCut 9.4 hard-code is replaced with latest-catalog WinGet installation under the RDP account. ArtCraft resolves the **latest official GitHub release** and checks the matching SHA256SUMS before installing; no version is hard-coded.
+- MT4/MT5 now request explicit installation folders and verify terminal executables. VS Code has an official Microsoft signed system-installer fallback. Claude Code can fall back to the official npm package when the native installer fails.
+- OmniRoute desktop is now attempted from the verified official GitHub portable asset in addition to the existing CLI. If the release lacks a verifiable SHA256 digest, it is **not** installed and the status is reported separately; no unsigned download is silently trusted.
+- Antigravity's RDP launcher no longer attempts to install extensions at each launch. Shortcuts are created in the Public Desktop/Start Menu without doubling the RDP-user desktop shortcut.
+- The app audit records selected applications individually, with executable-present or missing status; a successful worker step does not imply an interactive app launch. The HTML dashboard now includes these app records.
+- The Summary/HTML connection report shows **Tailscale IPv4, hostname, RDP command, user, and noVNC link when available**, never a password.
+- Group timeout is lowered from 20 to 12 minutes. This is an upper bound, not proof that all installers succeed; failed installers remain visible for diagnosis.
+
+Local regression coverage: tests/test_windows_legacy.py, tests/test_app_audit.py, tests/test_dashboard_connections.py, tests/test_windows_upgrade.py, and the existing workspace suites. Native PowerShell parsing and actual app launch on a new Windows runner still require a workflow run.
