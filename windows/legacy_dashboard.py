@@ -6,7 +6,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 from collections import Counter
-import ipaddress, json, os, re, sys
+import ipaddress, json, os, re, subprocess, sys
 from shared.workspace import state_dir, read_config
 
 COLORS = {'ready':'ok','installed':'ok','configured':'mid','failed':'bad','warning':'warn',
@@ -61,6 +61,52 @@ def safe_endpoint(detail):
     return ''
 
 
+
+def verified_magicdns():
+    """Get the real MagicDNS FQDN from Tailscale if it is available."""
+    try:
+        result = subprocess.run(['tailscale', 'status', '--json'], capture_output=True,
+                                text=True, timeout=6, check=False)
+        if result.returncode:
+            return ''
+        dns = json.loads(result.stdout).get('Self', {}).get('DNSName', '')
+        if not isinstance(dns, str):
+            return ''
+        dns = dns.rstrip('.').lower()
+        return dns if re.fullmatch(r'[a-z0-9-]+(?:\.[a-z0-9-]+)*\.ts\.net', dns) else ''
+    except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
+        return ''
+
+
+def console_access_lines(cfg, rows):
+    """One convenient, copyable access card in the job log; credentials omitted."""
+    status = {name: state for name, state, _ in rows}
+    ip = tailnet_ipv4(rows)
+    rdp_ready = bool(ip and status.get('Windows RDP') == 'ready')
+    web = next((safe_endpoint(detail) for name, state, detail in rows
+                if name == 'Windows noVNC' and state == 'ready'), '')
+    fqdn = next((detail for name, state, detail in rows
+                 if name == 'Tailnet DNS' and state == 'ready'), '')
+    rdp_command = f'mstsc /v:{ip}:3389 /f' if rdp_ready else 'Not ready / not selected'
+    return [
+        '[WFS/ACCESS] ========= WINDOWS REMOTE ACCESS =========',
+        '[WFS/ACCESS] MODE             : ' + str(cfg.get('remote_access','rdp')).upper(),
+        '[WFS/ACCESS] TAILSCALE IPv4   : ' + (ip or 'Not ready'),
+        '[WFS/ACCESS] HOSTNAME         : ' + str(cfg.get('hostname','rdp-runner')),
+        '[WFS/ACCESS] MAGICDNS         : ' + (fqdn or 'Not available'),
+        '[WFS/ACCESS] RDP STATUS       : ' + ('READY' if rdp_ready else 'NOT READY / NOT SELECTED'),
+        '[WFS/ACCESS] RDP FULLSCREEN   : ' + rdp_command,
+        '[WFS/ACCESS] RDP USER         : ' + str(cfg.get('rdp_username','RDP')),
+        '[WFS/ACCESS] noVNC STATUS     : ' + ('READY' if web else 'NOT READY / NOT SELECTED'),
+        '[WFS/ACCESS] noVNC URL        : ' + (web or 'Not ready / not selected'),
+        '[WFS/ACCESS] PASSWORD MODES   : RDP=' + str(cfg.get('rdp_password_mode','same_from_secret')) +
+            '; noVNC=' + str(cfg.get('vnc_password_mode','same_from_secret')),
+        '[WFS/ACCESS] PASSWORD         : See Job Summary when reveal_random_password=true (random mode only)',
+        '[WFS/ACCESS] NETWORK          : Connect from an authorized device on the same Tailscale network',
+        '[WFS/ACCESS] =========================================',
+    ]
+
+
 def clean_md(value:str)->str:
     return escape(value,quote=False).replace('|','&#124;').replace('\n',' ')
 
@@ -82,6 +128,7 @@ def content(stage:str, cfg:dict, rows:list, outcomes:dict, run_id:str, attempt:s
     has_rdp=entries.get('Windows RDP',('',))[0]=='ready'
     has_web=entries.get('Windows noVNC',('',))[0]=='ready'
     private_ip=tailnet_ipv4(rows)
+    fqdn = next((d for n,s,d in rows if n == 'Tailnet DNS' and s == 'ready'), '')
     if not private_ip and (has_rdp or has_web): ready=False
     rdp_command=f'mstsc /v:{private_ip}:3389 /f' if private_ip and has_rdp else ''
     vnc_url=safe_endpoint(entries['Windows noVNC'][1]) if has_web else ''
@@ -109,19 +156,26 @@ def content(stage:str, cfg:dict, rows:list, outcomes:dict, run_id:str, attempt:s
              f'| Remote mode | `{clean_md(str(cfg.get("remote_access","rdp")))}` |',
              f'| RDP user | `{clean_md(str(cfg.get("rdp_username","RDP")))}` |',
              f'| Hostname | `{clean_md(str(cfg.get("hostname","rdp-runner")))}` |',
+             f'| MagicDNS FQDN | `{clean_md(fqdn) if fqdn else "Tidak tersedia"}` |',
              f'| Requested duration | `{clean_md(str(cfg.get("duration_hours","6")))}` hours (subject to setup time) |','',
              '## Connection and installation checks','','| Component | Status | Detail |','|---|---|---|']
     for n,s,d in ordered:
         # Prevent markdown injection and leaking credential-looking info from future status format.
         summary.append(f'| {clean_md(n)} | **{clean_md(s)}** | {clean_md(d)} |')
     if stage=='access':
-        summary+=['','## 🔗 Detail koneksi (tanpa password)','',
+        summary+=['','## 🔗 Detail koneksi lengkap','',
                   '| Metode | Alamat / perintah |','|---|---|',
                   f'| Hostname Tailscale | `{clean_md(str(cfg.get("hostname","rdp-runner")))}` |',
+                  f'| MagicDNS (jika tersedia) | `{clean_md(fqdn) if fqdn else "Tidak tersedia"}` |',
+                  f'| Jenis akses | `{clean_md(str(cfg.get("remote_access","rdp")).upper())}` |',
                   f'| IP Tailscale (IPv4) | `{clean_md(private_ip) if private_ip else "Belum siap"}` |',
                   f'| Windows RDP | `{clean_md(rdp_command) if rdp_command else "Belum siap"}` |',
                   f'| noVNC web | {f"[Buka noVNC]({vnc_url})" if vnc_url else "Belum siap / tidak dipilih"} |',
                   f'| Username RDP | `{clean_md(str(cfg.get("rdp_username","RDP")))}` |',
+                  f'| Mode password RDP | `{clean_md(str(cfg.get("rdp_password_mode","same_from_secret")))}` |',
+                  f'| Mode password noVNC | `{clean_md(str(cfg.get("vnc_password_mode","same_from_secret")))}` |',
+                  '', '> [!TIP]',
+                  '> Untuk password `random_each_run`, pilih `reveal_random_password=true` saat Run workflow agar password sesi aktif tampil di Job Summary. Password tidak ditampilkan di log biasa atau dashboard HTML.',
                   '','## Connection instructions','',
                   'Connect your client to the **same Tailscale network**. Use the private Tailscale IPv4 in the Tailnet status above.',
                   'For RDP, run `mstsc /f` and enter the private Tailscale IP, with the user above and the password from `RDP_PASSWORD` (or its per-run derivation).',
@@ -143,7 +197,7 @@ p{{color:var(--muted);margin:7px 0 0}}.stats{{display:grid;grid-template-columns
 .footer{{margin-top:26px;border-top:1px solid var(--line);padding-top:15px;color:var(--muted);font:12px ui-monospace,monospace}}@media(max-width:680px){{main{{padding:17px}}header.hero{{padding:23px}}.stats{{grid-template-columns:repeat(2,1fr)}}.grid{{grid-template-columns:1fr}}}}</style></head>
 <body><main><header class="hero"><div class="eyebrow">WFS / REMOTE WORKSPACE · WINDOWS</div><h1>{escape(TITLES[stage])}</h1>
 <p>{escape(headline)} · {escape(str(cfg.get('windows_version','unknown')))} · {escape(str(cfg.get('remote_access','rdp')).upper())} · {escape(str(cfg.get('hostname','rdp-runner')))}</p>
-<p>Tailscale IPv4: <strong>{escape(private_ip or 'Not ready')}</strong> · Hostname: <strong>{escape(str(cfg.get('hostname','rdp-runner')))}</strong></p>
+<p>Tailscale IPv4: <strong>{escape(private_ip or 'Not ready')}</strong> · Hostname: <strong>{escape(str(cfg.get('hostname','rdp-runner')))}</strong> · MagicDNS: <strong>{escape(fqdn or 'Not available')}</strong></p>
 <p>RDP: <code>{escape(rdp_command or 'Not ready')}</code> · User: <code>{escape(str(cfg.get('rdp_username','RDP')))}</code></p>{link}</header>
 <section class="stats"><div class="stat"><b>{stats['ready']+stats['installed']}</b><small>Verified ready</small></div><div class="stat"><b>{stats['configured']+stats['attempted']}</b><small>Configured / attempted</small></div>
 <div class="stat"><b>{stats['failed']+stats['timed out']}</b><small>Failed</small></div><div class="stat"><b>{stats['warning']+stats['pending interactive']}</b><small>Needs attention</small></div></section>
@@ -161,7 +215,14 @@ def main():
     if not (re.fullmatch(r'(local|[0-9]+)',run) and re.fullmatch(r'[0-9]+',attempt)):
         raise SystemExit('Invalid run identity')
     rows=rows_in_state(state)
+    if stage == 'access' and any(n == 'Tailnet' and v == 'ready' for n,v,_ in rows):
+        dns = verified_magicdns()
+        if dns:
+            rows.append(('Tailnet DNS', 'ready', dns))
     summary, page=content(stage,cfg,rows,{},run,attempt)
+    if stage == 'access':
+        for line in console_access_lines(cfg, rows):
+            print(line, flush=True)
     target=Path(os.environ['RUNNER_TEMP'])/f'wfs-legacy-{("connection" if stage=="access" else "apps")}-{run}-{attempt}.html'
     target.write_text(page,encoding='utf8')
     with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf8') as f:f.write(summary)
