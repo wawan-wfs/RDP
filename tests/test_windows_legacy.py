@@ -49,9 +49,26 @@ class Legacy(unittest.TestCase):
   self.assertIn('Get-NetFirewallProfile -PolicyStore ActiveStore',s)
   self.assertIn('firewall-before.json',s)
   self.assertIn('Set-NetFirewallProfile -Profile $saved.name',s)
+  self.assertIn("if ($saved.enabled) { 'True' } else { 'False' }",s)
+  self.assertNotIn("-Enabled ([bool]$saved.enabled)",s)
+  self.assertIn("[ValidateSet('start','browser','cleanup')]",s)
+  self.assertIn("if ($Phase -eq 'browser'",s)
   self.assertIn('-RemoteAddress \'100.64.0.0/10\'',s)
   self.assertIn('SecurityLayer 2',s)
   self.assertIn('UserAuthentication 1',s)
+ def test_novnc_independent_timeout_and_continued_apps(self):
+  steps=self.steps
+  remote=next(x for x in steps if x.get('id')=='remote')
+  browser=next(x for x in steps if x.get('id')=='browser')
+  apps=next(x for x in steps if x.get('id')=='legacy_apps')
+  self.assertLessEqual(int(remote['timeout-minutes']),8)
+  self.assertLessEqual(int(browser['timeout-minutes']),6)
+  self.assertEqual(browser['continue-on-error'],'true')
+  self.assertIn('steps.remote.outcome',browser['if'])
+  self.assertIn('steps.remote.outcome',apps['if'])
+  self.assertNotIn('steps.browser.outcome',apps['if'])
+  self.assertTrue(any(x.get('name','').startswith('06a2') for x in steps))
+
  def test_novnc_msi_magic_and_fallback(self):
   s=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
   for part in ('D0CF11E0A1B11AE1','Get-AuthenticodeSignature','GlavSoft.TightVNC','SERVER_ADD_FIREWALL_EXCEPTION=0','SET_LOOPBACKONLY=1','VNC loopback/auth gate failed'):

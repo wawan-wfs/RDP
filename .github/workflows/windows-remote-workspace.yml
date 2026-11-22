@@ -250,17 +250,34 @@ jobs:
           args: --accept-dns=false
           timeout: 45s
           retry: '2'
-      - name: '06 · 🖥️ Start and test RDP and/or noVNC'
+      - name: '06 · 🖥️ Verify primary private desktop (RDP or noVNC-only)'
         if: ${{ !inputs.validation_only }}
         id: remote
         shell: pwsh
-        timeout-minutes: 22
+        timeout-minutes: 7
         env:
           RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
           ./windows/remote.ps1 -Phase start
-          if ($LASTEXITCODE -ne 0) { throw 'No remote endpoint passed readiness. Inspect grouped Windows RDP/noVNC logs.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Primary remote endpoint did not pass readiness; inspect WFS RDP/noVNC diagnostics.' }
+      - name: '06a · 🌐 Verify optional browser desktop (both mode)'
+        id: browser
+        if: ${{ !inputs.validation_only && inputs.remote_access == 'both' && steps.remote.outcome == 'success' }}
+        shell: pwsh
+        timeout-minutes: 5
+        continue-on-error: true
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+        run: |
+          ./windows/remote.ps1 -Phase browser
+          if ($LASTEXITCODE -ne 0) { throw 'noVNC could not pass independent readiness; RDP is still available.' }
+      - name: '06a2 · 🧭 Record optional noVNC failure'
+        if: ${{ !cancelled() && steps.browser.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          python shared/workspace.py status 'Windows noVNC' 'failed' 'Optional noVNC step timed out or failed; see browser stage. Primary RDP remains available.'
+          Write-Host '::warning title=WFS Optional noVNC::Browser desktop was not verified; continuing with proven RDP access and application installation.'
       - name: '06b · 🔐 Prepare credentials for legacy app installers'
         if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
         shell: pwsh

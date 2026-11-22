@@ -87,6 +87,8 @@ class Configuration(unittest.TestCase):
         self.assertIn("DefaultInboundAction -ne 'Block'", text)
         self.assertIn("New-NetFirewallRule -Name \"$rule-allow\"", text)
         self.assertIn("Remove-NetFirewallRule -Name \"$rule-allow\"", text)
+        self.assertIn("[ValidateSet('start','browser','cleanup')]", text)
+        self.assertIn("if ($Phase -eq 'browser'", text)
         self.assertNotIn("0.0.0.0-100.63.255.255", text)
 
     def test_windows_runner_selection(self):

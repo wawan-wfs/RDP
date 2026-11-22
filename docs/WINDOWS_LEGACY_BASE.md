@@ -72,3 +72,11 @@ The latest run succeeded at Tailscale and created the temporary RDP account, but
 - Group timeout is lowered from 20 to 12 minutes. This is an upper bound, not proof that all installers succeed; failed installers remain visible for diagnosis.
 
 Local regression coverage: tests/test_windows_legacy.py, tests/test_app_audit.py, tests/test_dashboard_connections.py, tests/test_windows_upgrade.py, and the existing workspace suites. Native PowerShell parsing and actual app launch on a new Windows runner still require a workflow run.
+
+### noVNC timeout isolation and firewall restore (22 Nov 2026)
+
+Live run [45006971739](https://github.com/wawan-wfs/RDP/actions/runs/45006971739) verified Windows RDP NLA, but the combined setup step was stopped after 22 minutes while starting noVNC after the Python bridge dependencies were installed. The precise blocking operation was not recorded in the old log. The workflow now separates the **both** mode into an RDP-primary step (7-minute cap) and an optional noVNC step (5-minute cap) so a web desktop timeout cannot prevent RDP application installation. An explicit failed noVNC ledger entry is written when the optional step fails, even on a GitHub-hosted timeout. The noVNC-only option remains strict: its own readiness must pass.
+
+Extra stage markers before task registration, launch, probe, and tailnet relay will pinpoint a future noVNC hang. Cleanup now passes `'True'` / `'False'` string enum values to `Set-NetFirewallProfile -Enabled` instead of PowerShell Booleans (which the Windows cmdlet refused). If the original inbound action was `NotConfigured`, the hosted runner preserves Block and reports this limitation.
+
+This improves failure isolation and diagnostics; it does not establish successful interactive browser control until verified in a new live run.

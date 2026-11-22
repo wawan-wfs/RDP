@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][ValidateSet('start','cleanup')][string] $Phase)
+param([Parameter(Mandatory)][ValidateSet('start','browser','cleanup')][string] $Phase)
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 Set-Location (Split-Path $PSScriptRoot -Parent)
@@ -77,11 +77,12 @@ if ($Phase -eq 'cleanup') {
       try {
         $savedProfiles = @(Get-Content "$state/firewall-before.json" -Raw | ConvertFrom-Json)
         foreach ($saved in $savedProfiles) {
+          $enabledFlag = if ($saved.enabled) { 'True' } else { 'False' }
           if ($saved.default_inbound -in @('Allow', 'Block')) {
-            Set-NetFirewallProfile -Profile $saved.name -Enabled ([bool]$saved.enabled) -DefaultInboundAction $saved.default_inbound -ErrorAction Stop
+            Set-NetFirewallProfile -Profile $saved.name -Enabled $enabledFlag -DefaultInboundAction $saved.default_inbound -ErrorAction Stop
           } else {
             # NotConfigured is only legal for GPO settings; never write it to a local store.
-            Set-NetFirewallProfile -Profile $saved.name -Enabled ([bool]$saved.enabled) -ErrorAction Stop
+            Set-NetFirewallProfile -Profile $saved.name -Enabled $enabledFlag -ErrorAction Stop
             Write-Warning "Original default inbound for $($saved.name) was not a restorable local value; retaining Block on disposable runner."
           }
         }
@@ -105,7 +106,7 @@ if ($LASTEXITCODE -ne 0 -or -not $rawIp) { throw 'Tailscale node has no verified
 $ip = & python shared/workspace.py ip $rawIp
 if ($LASTEXITCODE -ne 0 -or -not $ip) { throw 'No valid tailnet IPv4' }
 Status 'Tailnet' 'ready' "IPv4 $ip"
-if ($c.remote_access -in @('rdp','both')) {
+if ($Phase -eq 'start' -and $c.remote_access -in @('rdp','both')) {
   Write-Host '::group::🛡️ WFS / RDP · secure private listener + NLA'
   try {
     if ((Get-NetFirewallProfile | Where-Object { -not $_.Enabled }).Count) { throw 'Windows Firewall must be enabled for each profile' }
@@ -183,7 +184,7 @@ if ($c.remote_access -in @('rdp','both')) {
     Write-Warning ("RDP setup: " + $_.Exception.Message)
   } finally { Write-Host '::endgroup::' }
 }
-if ($c.remote_access -in @('novnc','both')) {
+if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'browser' -and $c.remote_access -eq 'both')) {
   Write-Host '::group::🖥️ WFS / noVNC · loopback and tailnet bridge'
   try {
     if ($env:RUNNER_ARCH -eq 'ARM64') { throw 'TightVNC browser mode is x64 only' }
@@ -209,6 +210,7 @@ if ($c.remote_access -in @('novnc','both')) {
       if (-not $validMsi) { Write-Warning 'TightVNC URL did not return a valid MSI binary. Trying the signed winget package instead.' }
     } catch { Write-Warning 'TightVNC direct download unavailable; trying the winget package.' }
     if ($validMsi) {
+      Write-Host '[WFS/noVNC] Verifying TightVNC installer signature'
       $signature = Get-AuthenticodeSignature -FilePath $msi
       if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'GlavSoft|TightVNC') { throw 'TightVNC MSI Authenticode signature or publisher verification failed' }
     }
@@ -233,26 +235,34 @@ if ($c.remote_access -in @('novnc','both')) {
         if ($code -notin 0,3010) { throw "TightVNC winget fallback returned $code" }
       }
     } finally { Remove-Variable pwd,msiProperties,arguments -ErrorAction SilentlyContinue }
+    Write-Host '[WFS/noVNC] Installer finished; checking local VNC service'
     if (-not (Get-Service tvnserver -ErrorAction SilentlyContinue)) { throw 'TightVNC installation did not create the server service' }
+    Write-Host '[WFS/noVNC] Starting VNC service and checking loopback port 5900'
     Start-Service tvnserver -ErrorAction Stop
     Wait-ServicePort '127.0.0.1' 5900
     & python shared/rfb_probe.py 127.0.0.1 5900 | Out-Null
     if ($LASTEXITCODE -ne 0 -or (Get-NetTCPConnection -State Listen -LocalPort 5900 | Where-Object LocalAddress -notin @('127.0.0.1','::1'))) { throw 'VNC loopback/auth gate failed' }
+    Write-Host '[WFS/noVNC] VNC loopback verified; downloading noVNC frontend'
     $bundle = "$state/novnc.zip"
     Invoke-WebRequest 'https://codeload.github.com/novnc/noVNC/zip/refs/tags/v1.7.0' -OutFile $bundle -TimeoutSec 60
     Expand-Archive -LiteralPath $bundle -DestinationPath "$state/web"
     $web = "$state/web/noVNC-1.7.0"
     if (-not (Test-Path "$web/vnc.html")) { throw 'noVNC distribution missing' }
+    Write-Host '[WFS/noVNC] Preparing isolated Python bridge (bounded installation)'
     $g = Invoke-BoundedInstaller (Get-Command python).Source @('-m','venv',('"{0}"' -f "$state/venv")) 90
     if ($g -ne 0) { throw 'noVNC bridge venv failed' }
     $exe = "$state/venv/Scripts/python.exe"
     $g = Invoke-BoundedInstaller $exe @('-m','pip','install','--disable-pip-version-check','--retries','1','--timeout','20','aiohttp>=3.13.3,<4') 120
     if ($g -ne 0) { throw 'noVNC bridge dependency install failed' }
+    Write-Host '[WFS/noVNC] Python bridge ready; registering background scheduled task'
     $action = New-ScheduledTaskAction -Execute $exe -Argument ('"{0}" "{1}"' -f "$PSScriptRoot/novnc_bridge.py",$web)
     $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([timespan]::FromHours(6)) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
     Register-ScheduledTask -TaskName $task -Action $action -Settings $settings -User SYSTEM -RunLevel Highest -Force | Out-Null
+    Write-Host '[WFS/noVNC] Starting background bridge task'
     Start-ScheduledTask -TaskName $task
+    Write-Host '[WFS/noVNC] Waiting for loopback HTTP/WebSocket port 6081'
     Wait-ServicePort '127.0.0.1' 6081
+    Write-Host '[WFS/noVNC] Running live HTTP/WebSocket handshake probe'
     & $exe "$PSScriptRoot/test_novnc.py" --live
     if ($LASTEXITCODE -ne 0) { throw 'HTTP/WebSocket RFB smoke failed' }
     $fragment = '#resize=scale&autoconnect=1&path=websockify'
@@ -266,6 +276,7 @@ if ($c.remote_access -in @('novnc','both')) {
       } catch { Status 'Windows HTTPS' 'warning' 'HTTPS is unavailable; trying private TCP 6082' }
     }
     if (-not $url) {
+      Write-Host '[WFS/noVNC] Configuring private Tailscale TCP relay 6082'
       Ts-Serve tcp 6082 'tcp://127.0.0.1:6081'
       $url = "http://${ip}:6082/vnc.html$fragment"
     }
@@ -274,5 +285,6 @@ if ($c.remote_access -in @('novnc','both')) {
   } catch { Status 'Windows noVNC' 'failed' 'See the remote setup step'; Write-Warning ("noVNC setup: " + $_.Exception.Message) }
   finally { Write-Host '::endgroup::' }
 }
-if (-not ((Test-Path "$state/rdp-ready") -or (Test-Path "$state/novnc-ready"))) { throw 'No requested remote endpoint passed its readiness checks' }
+if ($Phase -eq 'start' -and -not ((Test-Path "$state/rdp-ready") -or (Test-Path "$state/novnc-ready"))) { throw 'No requested remote endpoint passed its readiness checks' }
+if ($Phase -eq 'browser' -and -not (Test-Path "$state/novnc-ready")) { throw 'Optional browser endpoint did not pass readiness checks; native RDP may remain available' }
 $global:LASTEXITCODE = 0
