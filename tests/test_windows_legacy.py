@@ -73,13 +73,15 @@ class Legacy(unittest.TestCase):
   remote=next(x for x in steps if x.get('id')=='remote')
   browser=next(x for x in steps if x.get('id')=='browser')
   apps=next(x for x in steps if x.get('id')=='legacy_apps')
-  self.assertLessEqual(int(remote['timeout-minutes']),8)
-  self.assertLessEqual(int(browser['timeout-minutes']),6)
+  self.assertLessEqual(int(remote['timeout-minutes']),12)
+  self.assertLessEqual(int(browser['timeout-minutes']),12)
   self.assertEqual(browser['continue-on-error'],'true')
   self.assertIn('steps.remote.outcome',browser['if'])
   self.assertIn('steps.remote.outcome',apps['if'])
   self.assertNotIn('steps.browser.outcome',apps['if'])
   self.assertTrue(any(x.get('name','').startswith('06a2') for x in steps))
+  self.assertIn('windows.record_novnc_failure',self.text)
+  self.assertIn('windows.legacy_dashboard console',self.text)
 
  def test_novnc_msi_magic_and_fallback(self):
   s=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')

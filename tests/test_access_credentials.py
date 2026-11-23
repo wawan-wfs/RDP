@@ -69,6 +69,17 @@ class AccessCredentialsTests(unittest.TestCase):
         self.assertNotIn(self.env['RDP_PASSWORD'], lines)
         self.assertNotIn(self.env['VNC_PASSWORD'], lines)
 
+    def test_console_mode_and_bounded_browser_install(self):
+        from pathlib import Path
+        root=Path(__file__).resolve().parents[1]
+        source=(root/'windows/legacy_dashboard.py').read_text(encoding='utf8')
+        remote=(root/'windows/remote.ps1').read_text(encoding='utf8')
+        self.assertIn("'console'",source)
+        self.assertIn("if stage == 'console':",source)
+        self.assertIn("$novncStage = 'Tailscale Serve mapping'",remote)
+        self.assertIn("aiohttp already available; skipping duplicate install",remote)
+        self.assertNotIn("'-m','venv'",remote)
+
     def test_html_dashboard_omits_password(self):
         summary, html = legacy_dashboard.content('access', self.cfg, self.rows, {}, '42', '1')
         self.assertIn('Mode password RDP', summary)

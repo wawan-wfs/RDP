@@ -96,3 +96,10 @@ Run tersebut berstatus **cancelled** karena sesi aktif dihentikan, bukan karena 
 Penyebab dari log: GUI worker menghabiskan ~5 menit pada Antigravity, ~5 menit pada VS Code, lalu gagal pada CapCut karena PowerShell 5.1 menghasilkan native argument `install--id`. Akibat rethrow CapCut, task GUI berhenti sebelum Shotcut/MT4/MT5. CLI worker menghabiskan waktu pada npm OmniRoute dan dihentikan setelah 12 menit, sehingga Codex, Claude, Hermes, OpenClaw dan OpenCode tidak mendapat kesempatan selesai. ArtCraft mengembalikan error binary missing setelah MSI task.
 
 Perbaikan: instalasi Shotcut/MT4/MT5 diprioritaskan sebelum IDE/CapCut; CapCut mengirim argumen native eksplisit, tanpa variabel otomatis `$args`; kegagalan optional app tidak memutus grup; OmniRoute Desktop (rilis resmi portabel) tidak lagi membutuhkan paket npm dengan native build berat; npm sekarang punya batas waktu per paket (165s) agar tidak menghabiskan waktu semua CLI; dan grup memiliki batas waktu lebih realistis untuk pilihan `both/all`, dengan audit executable tetap menjadi ukuran sebenarnya. Belum ada run baru yang memverifikasi seluruh pemasangan.
+
+
+### Latest BOTH run: noVNC diagnosis + access details in main log
+
+The run `45197537658` reports **RDP ready, noVNC failed**. Its browser stage was a continue-on-error step, and the generic failure recorder previously overwrote the more useful stage-specific reason. The new browser phase records its exact setup stage before failure; the recorder preserves that reason. noVNC's maximum step duration was increased to 12 minutes for first-time MSI/WinGet installation, and the bridge now reuses the setup-python runtime rather than creating a second virtual environment. If noVNC fails, the verified RDP endpoint and apps continue independently.
+
+At step 18 (session keep-alive), a fresh **[WFS/ACCESS]** card repeats IP, hostname, MagicDNS, mode, RDP command, username, noVNC link/status and password mode directly in the visible log. Secret values remain excluded from the regular log and HTML artifact. Interactive desktop control still must be checked from an authorized tailnet client.

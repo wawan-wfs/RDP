@@ -260,7 +260,7 @@ jobs:
         if: ${{ !inputs.validation_only }}
         id: remote
         shell: pwsh
-        timeout-minutes: 7
+        timeout-minutes: 12
         env:
           RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
@@ -271,7 +271,7 @@ jobs:
         id: browser
         if: ${{ !inputs.validation_only && inputs.remote_access == 'both' && steps.remote.outcome == 'success' }}
         shell: pwsh
-        timeout-minutes: 5
+        timeout-minutes: 12
         continue-on-error: true
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
@@ -282,8 +282,10 @@ jobs:
         if: ${{ !cancelled() && steps.browser.outcome == 'failure' }}
         shell: pwsh
         run: |
-          python shared/workspace.py status 'Windows noVNC' 'failed' 'Optional noVNC step timed out or failed; see browser stage. Primary RDP remains available.'
-          Write-Host '::warning title=WFS Optional noVNC::Browser desktop was not verified; continuing with proven RDP access and application installation.'
+          # Preserve the specific failure stage already recorded by remote.ps1.
+          # Only write a generic failure if the job hit the timeout before logging.
+          python -m windows.record_novnc_failure
+          Write-Host '::warning title=WFS Optional noVNC::Browser desktop was not verified. Check the recorded failure stage; RDP remains available.'
       - name: '06b · 🔐 Prepare credentials for legacy app installers'
         if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
         shell: pwsh
@@ -2564,7 +2566,11 @@ jobs:
         if: ${{ !cancelled() && !inputs.validation_only && steps.remote.outcome == 'success' }}
         shell: pwsh
         run: |
-          Write-Host '::notice title=WFS Remote Ready::Use the address and login name from the Summary tab. Cancel this workflow to stop the session early.'
+          Write-Host '::group::WFS ACCESS DETAILS — COPY YOUR CONNECTION INFO'
+          python -m windows.legacy_dashboard console
+          if ($LASTEXITCODE -ne 0) { Write-Warning 'Access details could not be refreshed; see step 06c or the connection artifact.' }
+          Write-Host '::endgroup::'
+          Write-Host '::notice title=WFS Remote Ready::RDP and noVNC status, hostname, Tailscale IPv4 and URL are printed above. Cancel to end the session.'
           python shared/workspace.py hold
       - name: '19 · 🧹 Restore system settings and clean up'
         if: ${{ always() && steps.preflight.outcome == 'success' && !inputs.validation_only }}

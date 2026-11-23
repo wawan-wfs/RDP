@@ -207,18 +207,22 @@ p{{color:var(--muted);margin:7px 0 0}}.stats{{display:grid;grid-template-columns
 
 
 def main():
-    if len(sys.argv)!=2 or sys.argv[1] not in TITLES:
-        raise SystemExit('Specify access or apps')
+    if len(sys.argv)!=2 or sys.argv[1] not in (*TITLES, 'console'):
+        raise SystemExit('Specify access, apps or console')
     stage=sys.argv[1]; state=state_dir()
     cfg=read_config()
     run=os.environ.get('GITHUB_RUN_ID','local'); attempt=os.environ.get('GITHUB_RUN_ATTEMPT','1')
     if not (re.fullmatch(r'(local|[0-9]+)',run) and re.fullmatch(r'[0-9]+',attempt)):
         raise SystemExit('Invalid run identity')
     rows=rows_in_state(state)
-    if stage == 'access' and any(n == 'Tailnet' and v == 'ready' for n,v,_ in rows):
+    if stage in ('access', 'console') and any(n == 'Tailnet' and v == 'ready' for n,v,_ in rows):
         dns = verified_magicdns()
         if dns:
             rows.append(('Tailnet DNS', 'ready', dns))
+    if stage == 'console':
+        for line in console_access_lines(cfg, rows):
+            print(line, flush=True)
+        return
     summary, page=content(stage,cfg,rows,{},run,attempt)
     if stage == 'access':
         for line in console_access_lines(cfg, rows):

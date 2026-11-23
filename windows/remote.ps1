@@ -186,10 +186,12 @@ if ($Phase -eq 'start' -and $c.remote_access -in @('rdp','both')) {
 }
 if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'browser' -and $c.remote_access -eq 'both')) {
   Write-Host '::group::🖥️ WFS / noVNC · loopback and tailnet bridge'
+  $novncStage = 'preflight'
   try {
     if ($env:RUNNER_ARCH -eq 'ARM64') { throw 'TightVNC browser mode is x64 only' }
     if (Get-Service tvnserver -ErrorAction SilentlyContinue) { throw 'Existing TightVNC service will not be modified' }
     $pwd = Secret web
+    $novncStage = 'download / signature verification'
     $msi = "$state/tightvnc.msi"
     $msiUrl = 'https://www.tightvnc.com/download/2.8.90/tightvnc-2.8.90-gpl-setup-64bit.msi'
     $msiProperties = @('ADDLOCAL=Server', 'SERVER_REGISTER_AS_SERVICE=1',
@@ -214,6 +216,7 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
       $signature = Get-AuthenticodeSignature -FilePath $msi
       if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'GlavSoft|TightVNC') { throw 'TightVNC MSI Authenticode signature or publisher verification failed' }
     }
+    $novncStage = 'TightVNC installation'
     # The VNC listener MUST remain local-only. Block direct remote 5900 before install.
     New-NetFirewallRule -Name "$rule-VNC-Block" -DisplayName 'WFS deny direct VNC (use Tailscale bridge)' -Protocol TCP -LocalPort 5900 -Direction Inbound -Action Block -ErrorAction Stop | Out-Null
     New-Item "$state/vnc-owned" -ItemType File -Force | Out-Null
@@ -235,6 +238,7 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
         if ($code -notin 0,3010) { throw "TightVNC winget fallback returned $code" }
       }
     } finally { Remove-Variable pwd,msiProperties,arguments -ErrorAction SilentlyContinue }
+    $novncStage = 'TightVNC service and loopback listener'
     Write-Host '[WFS/noVNC] Installer finished; checking local VNC service'
     if (-not (Get-Service tvnserver -ErrorAction SilentlyContinue)) { throw 'TightVNC installation did not create the server service' }
     Write-Host '[WFS/noVNC] Starting VNC service and checking loopback port 5900'
@@ -242,18 +246,26 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
     Wait-ServicePort '127.0.0.1' 5900
     & python shared/rfb_probe.py 127.0.0.1 5900 | Out-Null
     if ($LASTEXITCODE -ne 0 -or (Get-NetTCPConnection -State Listen -LocalPort 5900 | Where-Object LocalAddress -notin @('127.0.0.1','::1'))) { throw 'VNC loopback/auth gate failed' }
+    $novncStage = 'download noVNC frontend'
     Write-Host '[WFS/noVNC] VNC loopback verified; downloading noVNC frontend'
     $bundle = "$state/novnc.zip"
     Invoke-WebRequest 'https://codeload.github.com/novnc/noVNC/zip/refs/tags/v1.7.0' -OutFile $bundle -TimeoutSec 60
     Expand-Archive -LiteralPath $bundle -DestinationPath "$state/web"
     $web = "$state/web/noVNC-1.7.0"
     if (-not (Test-Path "$web/vnc.html")) { throw 'noVNC distribution missing' }
-    Write-Host '[WFS/noVNC] Preparing isolated Python bridge (bounded installation)'
-    $g = Invoke-BoundedInstaller (Get-Command python).Source @('-m','venv',('"{0}"' -f "$state/venv")) 90
-    if ($g -ne 0) { throw 'noVNC bridge venv failed' }
-    $exe = "$state/venv/Scripts/python.exe"
-    $g = Invoke-BoundedInstaller $exe @('-m','pip','install','--disable-pip-version-check','--retries','1','--timeout','20','aiohttp>=3.13.3,<4') 120
-    if ($g -ne 0) { throw 'noVNC bridge dependency install failed' }
+    # The setup-python Python runtime is already isolated per hosted runner.
+    # Do not waste minutes on a second venv and duplicate pip installation.
+    $novncStage = 'aiohttp dependency'
+    $exe = (Get-Command python -ErrorAction Stop).Source
+    & $exe -c 'import aiohttp; print(aiohttp.__version__)' 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host '[WFS/noVNC] Installing only missing aiohttp dependency into setup-python runtime'
+      $g = Invoke-BoundedInstaller $exe @('-m','pip','install','--disable-pip-version-check','--retries','1','--timeout','20','aiohttp>=3.13.3,<4') 110
+      if ($g -ne 0) { throw 'noVNC aiohttp dependency install failed' }
+    } else {
+      Write-Host '[WFS/noVNC] aiohttp already available; skipping duplicate install'
+    }
+    $novncStage = 'background bridge task'
     Write-Host '[WFS/noVNC] Python bridge ready; registering background scheduled task'
     $action = New-ScheduledTaskAction -Execute $exe -Argument ('"{0}" "{1}"' -f "$PSScriptRoot/novnc_bridge.py",$web)
     $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([timespan]::FromHours(6)) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
@@ -262,9 +274,11 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
     Start-ScheduledTask -TaskName $task
     Write-Host '[WFS/noVNC] Waiting for loopback HTTP/WebSocket port 6081'
     Wait-ServicePort '127.0.0.1' 6081
+    $novncStage = 'HTTP/WebSocket handshake'
     Write-Host '[WFS/noVNC] Running live HTTP/WebSocket handshake probe'
     & $exe "$PSScriptRoot/test_novnc.py" --live
     if ($LASTEXITCODE -ne 0) { throw 'HTTP/WebSocket RFB smoke failed' }
+    $novncStage = 'Tailscale Serve mapping'
     $fragment = '#resize=scale&autoconnect=1&path=websockify'
     $url = $null
     if ($c.novnc_transport -eq 'tailscale_https') {
@@ -282,7 +296,11 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
     }
     Status 'Windows noVNC' 'ready' "$url; console session; VNC password required"
     Set-Content "$state/novnc-ready" 'yes'
-  } catch { Status 'Windows noVNC' 'failed' 'See the remote setup step'; Write-Warning ("noVNC setup: " + $_.Exception.Message) }
+  } catch {
+    Status 'Windows noVNC' 'failed' "Failed at $novncStage; see noVNC step logs"
+    Write-Warning ("[WFS/noVNC] FAILED stage=" + $novncStage + "; reason=" + $_.Exception.Message)
+    Write-Host "::warning title=WFS noVNC setup::Failure during $novncStage; RDP may still be available."
+  }
   finally { Write-Host '::endgroup::' }
 }
 if ($Phase -eq 'start' -and -not ((Test-Path "$state/rdp-ready") -or (Test-Path "$state/novnc-ready"))) { throw 'No requested remote endpoint passed its readiness checks' }
