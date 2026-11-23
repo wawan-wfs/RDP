@@ -108,3 +108,8 @@ At step 18 (session keep-alive), a fresh **[WFS/ACCESS]** card repeats IP, hostn
 ### Missing application recovery on the BOTH run (45197537658)
 
 Six requested executables were not detected: CapCut, ArtCraft Launcher, Codex CLI, OpenCode, OpenClaw and 9Router. Step 13c fetches the latest official ArtCraft portable ZIP if the MSI has not produced an executable, verifying the release SHA256SUMS before extracting it. Step 13d retries missing npm CLI commands individually via the installed Node runtime with bounded 145-second attempts and leaves others running when one fails. CapCut may need an interactive per-user installation if its silent installer cannot run on the hosted Windows desktop.
+
+
+### CapCut user-profile fallback
+
+CapCut in the latest BOTH run did not have a verified executable after a headless user-scope install. The new 13e step checks the selected RDP user's profile and, if missing, creates a Startup shortcut that attempts WinGet installation only inside that user's real login session. It also adds **Install or Repair CapCut for RDP** to the common Start Menu. A per-user log is written under `%LOCALAPPDATA%\WFS\CapCut-Install.log`. Until the executable is actually detected, the app inventory reports **pending interactive**, not installed. This fallback is for cases where Windows headless silent installation cannot complete; it does not guarantee success until verified.

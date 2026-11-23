@@ -66,6 +66,16 @@ class Regression(unittest.TestCase):
   self.assertIn('opencode-ai',cli)
   self.assertIn('@openai/codex',cli)
 
+ def test_capcut_interactive_repair_is_not_claimed_installed(self):
+  self.assertIn('windows/capcut_logon.ps1',self.source)
+  s=(ROOT/'windows/capcut_logon.ps1').read_text(encoding='utf8')
+  self.assertIn('Install-CapCut-For-RDP.ps1',s)
+  self.assertIn('Startup',s)
+  self.assertIn('CapCut-Install.log',s)
+  audit=(ROOT/'windows/app_audit.py').read_text(encoding='utf8')
+  self.assertIn("'pending interactive'",audit)
+  self.assertIn('capcut-pending.txt',audit)
+
  def test_no_secret_in_summary_or_logs(self):
   s=(ROOT/'windows/legacy_dashboard.py').read_text(encoding='utf8')
   self.assertNotIn('RDP_PASSWORD=',s)

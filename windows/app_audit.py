@@ -76,6 +76,9 @@ def inspect(c, exists=lambda p:p.is_file(), env=os.environ):
     for name,asked in wanted.items():
         if not asked: continue
         found=next((str(p) for p in paths.get(name,[]) if exists(p)),None)
+        if not found and name == 'CapCut' and exists(roots(c,env)['programs'] / 'WFS-Apps/capcut-pending.txt'):
+            results.append((name, 'pending interactive', 'WinGet retry scheduled for RDP user logon; check local WFS/CapCut-Install.log', None))
+            continue
         if found:
             # Executable exists but GUI app launch inside RDP has not been confirmed.
             state='installed' if name in ('Chrome','WinRAR','Node.js','VS Code','Shotcut','MetaTrader 4','MetaTrader 5','CapCut','ArtCraft Launcher') or (name=='OmniRoute' and str(found).lower().endswith('.exe')) else 'configured'

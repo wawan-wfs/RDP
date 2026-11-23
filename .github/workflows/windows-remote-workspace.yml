@@ -1857,6 +1857,12 @@ jobs:
         continue-on-error: true
         timeout-minutes: 12
         run: ./windows/repair_cli.ps1
+      - name: '13e · 🎬 Prepare CapCut RDP-profile logon repair'
+        if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' && (inputs.editor_choice == 'capcut' || inputs.editor_choice == 'both') }}
+        shell: pwsh
+        timeout-minutes: 2
+        continue-on-error: true
+        run: ./windows/capcut_logon.ps1
       - name: '14 · 🧷 Publish real app shortcuts to RDP desktop'
         if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
         continue-on-error: true
