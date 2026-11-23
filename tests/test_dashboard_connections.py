@@ -12,6 +12,16 @@ class Conn(unittest.TestCase):
   self.assertIn('rdp-runner',html)
   self.assertIn('Mode password RDP',md)
   self.assertNotIn('RDP_PASSWORD=',md)
+ def test_both_mode_partial_when_novnc_missing(self):
+  cfg={'remote_access':'both','rdp_username':'RDP','hostname':'rdp-runner'}
+  rows=[('Tailnet','ready','IPv4 100.111.1.2'),('Windows RDP','ready','mstsc /v:100.111.1.2:3389'),('Windows noVNC','failed','Probe timed out')]
+  md,html=ld.content('access',cfg,rows,{},'99','1')
+  self.assertIn('PARTIAL ACCESS',md)
+  self.assertNotIn('Workspace · READY',md)
+  console='\n'.join(ld.console_access_lines(cfg,rows))
+  self.assertIn('FAILED',console)
+  self.assertNotIn('noVNC URL        : http',console)
+
  def test_public_ip_not_shown(self):
   cfg={'hostname':'rdp-runner','remote_access':'rdp','rdp_username':'RDP'}
   rows=[('Tailnet','ready','IPv4 8.8.8.8'),('Windows RDP','ready','mstsc /v:8.8.8.8:3389')]

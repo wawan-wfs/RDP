@@ -88,6 +88,7 @@ def console_access_lines(cfg, rows):
     fqdn = next((detail for name, state, detail in rows
                  if name == 'Tailnet DNS' and state == 'ready'), '')
     rdp_command = f'mstsc /v:{ip}:3389 /f' if rdp_ready else 'Not ready / not selected'
+    web_status = 'READY' if web else ('FAILED — see 06a' if status.get('Windows noVNC') == 'failed' else 'NOT READY / NOT SELECTED')
     return [
         '[WFS/ACCESS] ========= WINDOWS REMOTE ACCESS =========',
         '[WFS/ACCESS] MODE             : ' + str(cfg.get('remote_access','rdp')).upper(),
@@ -97,7 +98,7 @@ def console_access_lines(cfg, rows):
         '[WFS/ACCESS] RDP STATUS       : ' + ('READY' if rdp_ready else 'NOT READY / NOT SELECTED'),
         '[WFS/ACCESS] RDP FULLSCREEN   : ' + rdp_command,
         '[WFS/ACCESS] RDP USER         : ' + str(cfg.get('rdp_username','RDP')),
-        '[WFS/ACCESS] noVNC STATUS     : ' + ('READY' if web else 'NOT READY / NOT SELECTED'),
+        '[WFS/ACCESS] noVNC STATUS     : ' + web_status,
         '[WFS/ACCESS] noVNC URL        : ' + (web or 'Not ready / not selected'),
         '[WFS/ACCESS] PASSWORD MODES   : RDP=' + str(cfg.get('rdp_password_mode','same_from_secret')) +
             '; noVNC=' + str(cfg.get('vnc_password_mode','same_from_secret')),
@@ -132,7 +133,11 @@ def content(stage:str, cfg:dict, rows:list, outcomes:dict, run_id:str, attempt:s
     if not private_ip and (has_rdp or has_web): ready=False
     rdp_command=f'mstsc /v:{private_ip}:3389 /f' if private_ip and has_rdp else ''
     vnc_url=safe_endpoint(entries['Windows noVNC'][1]) if has_web else ''
-    headline=('READY' if ready else 'SETUP FAILED') if stage=='access' else 'INSTALLATION SNAPSHOT'
+    requested_mode=str(cfg.get('remote_access','rdp')).lower()
+    if stage=='access' and requested_mode=='both' and ready and not (has_rdp and has_web):
+        headline='PARTIAL ACCESS — RDP ONLY' if has_rdp else 'PARTIAL ACCESS — noVNC ONLY'
+    else:
+        headline=('READY' if ready else 'SETUP FAILED') if stage=='access' else 'INSTALLATION SNAPSHOT'
     priority=[name for name in ('Tailnet','Windows RDP','Windows noVNC') if name in entries]
     ordered=[(n,*entries[n]) for n in priority]+[(n,s,d) for n,s,d in rows if n not in priority]
     if stage=='apps':
@@ -222,6 +227,9 @@ def main():
     if stage == 'console':
         for line in console_access_lines(cfg, rows):
             print(line, flush=True)
+        status_by_name={n:state for n,state,_ in rows}
+        if cfg.get('remote_access')=='both' and status_by_name.get('Windows noVNC')!='ready':
+            print('::warning title=WFS PARTIAL REMOTE ACCESS::RDP is available, but requested noVNC was not verified. See noVNC stage 06a.',flush=True)
         return
     if stage == 'apps':
         keys=('ide_choice','editor_choice','metatrader_choice','router_choice','coding_agent_choice','ai_agent_choice')
