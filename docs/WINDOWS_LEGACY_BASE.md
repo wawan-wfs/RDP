@@ -113,3 +113,6 @@ Six requested executables were not detected: CapCut, ArtCraft Launcher, Codex CL
 ### CapCut user-profile fallback
 
 CapCut in the latest BOTH run did not have a verified executable after a headless user-scope install. The new 13e step checks the selected RDP user's profile and, if missing, creates a Startup shortcut that attempts WinGet installation only inside that user's real login session. It also adds **Install or Repair CapCut for RDP** to the common Start Menu. A per-user log is written under `%LOCALAPPDATA%\WFS\CapCut-Install.log`. Until the executable is actually detected, the app inventory reports **pending interactive**, not installed. This fallback is for cases where Windows headless silent installation cannot complete; it does not guarantee success until verified.
+
+
+When the RDP session ends, cleanup removes the temporary CapCut login/start-menu shortcuts and retry script on hosted or reused machines, so they do not remain configured for unrelated users. The local workflow schema test uses a YAML loader that preserves the literal `on:` key.

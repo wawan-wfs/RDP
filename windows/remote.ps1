@@ -93,6 +93,17 @@ if ($Phase -eq 'cleanup') {
   }
   Get-ScheduledTask -TaskName "WFS-UserApps-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-*" -ErrorAction SilentlyContinue |
     ForEach-Object { Stop-ScheduledTask -InputObject $_ -ErrorAction SilentlyContinue; Unregister-ScheduledTask -InputObject $_ -Confirm:$false -ErrorAction SilentlyContinue }
+  # The CapCut logon fallback must not persist on a reused/self-hosted runner
+  # after the temporary RDP session has ended.
+  if ($c.editor_choice -in @('capcut','both')) {
+    $capcutStartup = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Startup\WFS CapCut RDP Setup.lnk'
+    $capcutRepair = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Install or Repair CapCut for RDP.lnk'
+    foreach ($path in @($capcutStartup,$capcutRepair)) {
+      Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    }
+    Remove-Item -LiteralPath (Join-Path $env:ProgramData 'WFS-Apps\capcut-pending.txt') -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $env:ProgramData 'WFS-Apps\CapCut') -Recurse -Force -ErrorAction SilentlyContinue
+  }
   if (Test-Path "$state/user-owned") { Remove-LocalUser -Name $user -ErrorAction SilentlyContinue; Remove-Item "$state/user-owned" -Force }
   return
 }

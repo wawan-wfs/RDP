@@ -7,7 +7,7 @@ class Regression(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
   cls.source=(ROOT/'.github/workflows/windows-remote-workspace.yml').read_text(encoding='utf8')
-  cls.wf=yaml.safe_load(cls.source)
+  cls.wf=yaml.load(cls.source,Loader=yaml.BaseLoader)
   cls.steps=cls.wf['jobs']['secure-rdp']['steps']
  def test_name_manual_trigger_three_workflows(self):
   self.assertEqual(self.wf['name'],'WFS Windows Remote Workspace')
@@ -75,6 +75,8 @@ class Regression(unittest.TestCase):
   audit=(ROOT/'windows/app_audit.py').read_text(encoding='utf8')
   self.assertIn("'pending interactive'",audit)
   self.assertIn('capcut-pending.txt',audit)
+  remote=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
+  self.assertIn('WFS CapCut RDP Setup.lnk',remote)
 
  def test_no_secret_in_summary_or_logs(self):
   s=(ROOT/'windows/legacy_dashboard.py').read_text(encoding='utf8')
