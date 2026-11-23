@@ -223,6 +223,12 @@ def main():
         for line in console_access_lines(cfg, rows):
             print(line, flush=True)
         return
+    if stage == 'apps':
+        keys=('ide_choice','editor_choice','metatrader_choice','router_choice','coding_agent_choice','ai_agent_choice')
+        choices='; '.join(f'{key}={cfg.get(key, "none")}' for key in keys)
+        print('[WFS/APP/SELECT] Requested application choices: '+choices, flush=True)
+        print('[WFS/APP/SELECT] install_artcraft='+str(cfg.get('install_artcraft',False)), flush=True)
+        print('[WFS/APP/SELECT] Apps not selected were intentionally skipped.',flush=True)
     summary, page=content(stage,cfg,rows,{},run,attempt)
     if stage == 'access':
         for line in console_access_lines(cfg, rows):

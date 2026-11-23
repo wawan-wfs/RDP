@@ -133,3 +133,8 @@ Official upstream references: [ArtCraft releases](https://github.com/storytold/c
 Lihat step **06c · Publish connection dashboard before apps** untuk blok `[WFS/ACCESS]`: mode RDP/noVNC, IP Tailscale, hostname + MagicDNS bila tersedia, `mstsc /v:IP:3389 /f`, username `RDP`, status metode dan URL noVNC. Bagian Job Summary dan dashboard HTML juga memuat alamat yang sudah diverifikasi.
 
 Password tidak ditulis ke log biasa. Jika menggunakan `random_each_run` dan menghendaki password sesi ditampilkan, saat **Run workflow** centang **`reveal_random_password=true`**. Step **06c2** menaruh password turunan sesi hanya di Job Summary untuk metode yang telah ready. **Peringatan:** siapa pun dengan izin melihat run GitHub Actions mungkin dapat membaca password itu. Default `false`; untuk `same_from_secret`, tidak ada password yang dibuka.
+
+
+### noVNC diagnostics (24 November 2026)
+
+Run `45208451244` hung 12 minutes at the aiohttp live WebSocket/RFB probe after TightVNC, loopback 5900, aiohttp and local 6081 all passed. The live probe now uses the standard-library HTTP and raw WebSocket protocol handshake to validate the RFB banner, with a **25-second external process timeout**. The original bridge fixtures remain, and the new 6-test socket suite passed locally. The app dashboard now prints `[WFS/APP/SELECT]` showing requested app choices, so unselected apps cannot be misread as failed installs.

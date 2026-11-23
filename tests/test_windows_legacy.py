@@ -83,6 +83,14 @@ class Legacy(unittest.TestCase):
   self.assertIn('windows.record_novnc_failure',self.text)
   self.assertIn('windows.legacy_dashboard console',self.text)
 
+ def test_novnc_failfast_probe_is_bounded(self):
+  remote=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
+  self.assertIn('novnc_probe.py',remote)
+  self.assertIn('-TimeoutSeconds 25',remote)
+  self.assertNotIn('test_novnc.py" --live',remote)
+  self.assertIn('python windows/test_novnc_probe.py',self.text)
+  self.assertIn('WFS/APP/SELECT',(ROOT/'windows/legacy_dashboard.py').read_text(encoding='utf8'))
+
  def test_novnc_msi_magic_and_fallback(self):
   s=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
   for part in ('D0CF11E0A1B11AE1','Get-AuthenticodeSignature','GlavSoft.TightVNC','SERVER_ADD_FIREWALL_EXCEPTION=0','SET_LOOPBACKONLY=1','VNC loopback/auth gate failed'):

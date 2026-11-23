@@ -286,9 +286,11 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
     Write-Host '[WFS/noVNC] Waiting for loopback HTTP/WebSocket port 6081'
     Wait-ServicePort '127.0.0.1' 6081
     $novncStage = 'HTTP/WebSocket handshake'
-    Write-Host '[WFS/noVNC] Running live HTTP/WebSocket handshake probe'
-    & $exe "$PSScriptRoot/test_novnc.py" --live
-    if ($LASTEXITCODE -ne 0) { throw 'HTTP/WebSocket RFB smoke failed' }
+    Write-Host '[WFS/noVNC] Running native fail-fast HTTP/WebSocket/RFB probe (25-second timeout)'
+    # The old live aiohttp ClientSession test hung on Windows after its own
+    # timeouts. Use the stdlib socket probe and independently bound its process.
+    $probeCode = Invoke-BoundedInstaller -FilePath $exe -Arguments @('-u', ('"{0}"' -f "$PSScriptRoot/novnc_probe.py")) -TimeoutSeconds 25
+    if ($probeCode -ne 0) { throw "HTTP/WebSocket/RFB probe exited with code $probeCode" }
     $novncStage = 'Tailscale Serve mapping'
     $fragment = '#resize=scale&autoconnect=1&path=websockify'
     $url = $null

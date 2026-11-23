@@ -244,6 +244,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Tailnet IPv4 tests failed' }
           python windows/test_novnc.py
           if ($LASTEXITCODE -ne 0) { throw 'noVNC bridge tests failed' }
+          python windows/test_novnc_probe.py
+          if ($LASTEXITCODE -ne 0) { throw 'noVNC bounded WebSocket/RFB probe tests failed' }
           ./tests/verify-windows.ps1
       - name: '05 · 🐾 Connect Tailscale private network'
         if: ${{ !inputs.validation_only && inputs.runner_type == 'github' }}

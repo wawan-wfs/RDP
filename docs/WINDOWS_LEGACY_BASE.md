@@ -116,3 +116,10 @@ CapCut in the latest BOTH run did not have a verified executable after a headles
 
 
 When the RDP session ends, cleanup removes the temporary CapCut login/start-menu shortcuts and retry script on hosted or reused machines, so they do not remain configured for unrelated users. The local workflow schema test uses a YAML loader that preserves the literal `on:` key.
+
+
+### Run 45208451244 — fail-fast noVNC handshake repair
+
+This completed BOTH-mode run showed RDP ready and noVNC failed, despite GitHub Actions marking the job successful. The TightVNC installation, localhost:5900 RFB probe, noVNC frontend, aiohttp dependency and background HTTP listener 6081 all succeeded. The previous `test_novnc.py --live` hung for 12 minutes at WebSocket/RFB verification. We replaced only the *live* smoke probe with a standard-library HTTP + RFC6455 upgrade + RFB-banner check, with a 25-second external timeout. Six mock-socket regression tests and a local integration test against the real aiohttp bridge plus mock VNC server passed. Interactive screen control and Tailscale Serve still need verification on the next hosted Windows run.
+
+The same run's application artifact listed Chrome, WinRAR, Node.js, ArtCraft Launcher as detected. Other optional apps were not selected, rather than failed; app output now prints requested choices clearly.
