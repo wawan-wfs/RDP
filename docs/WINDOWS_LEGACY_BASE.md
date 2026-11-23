@@ -103,3 +103,8 @@ Perbaikan: instalasi Shotcut/MT4/MT5 diprioritaskan sebelum IDE/CapCut; CapCut m
 The run `45197537658` reports **RDP ready, noVNC failed**. Its browser stage was a continue-on-error step, and the generic failure recorder previously overwrote the more useful stage-specific reason. The new browser phase records its exact setup stage before failure; the recorder preserves that reason. noVNC's maximum step duration was increased to 12 minutes for first-time MSI/WinGet installation, and the bridge now reuses the setup-python runtime rather than creating a second virtual environment. If noVNC fails, the verified RDP endpoint and apps continue independently.
 
 At step 18 (session keep-alive), a fresh **[WFS/ACCESS]** card repeats IP, hostname, MagicDNS, mode, RDP command, username, noVNC link/status and password mode directly in the visible log. Secret values remain excluded from the regular log and HTML artifact. Interactive desktop control still must be checked from an authorized tailnet client.
+
+
+### Missing application recovery on the BOTH run (45197537658)
+
+Six requested executables were not detected: CapCut, ArtCraft Launcher, Codex CLI, OpenCode, OpenClaw and 9Router. Step 13c fetches the latest official ArtCraft portable ZIP if the MSI has not produced an executable, verifying the release SHA256SUMS before extracting it. Step 13d retries missing npm CLI commands individually via the installed Node runtime with bounded 145-second attempts and leaves others running when one fails. CapCut may need an interactive per-user installation if its silent installer cannot run on the hosted Windows desktop.

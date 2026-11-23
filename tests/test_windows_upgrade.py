@@ -51,6 +51,21 @@ class Regression(unittest.TestCase):
   self.assertIn("& $ctx.Winget install --id ByteDance.CapCut",src)
   self.assertNotIn(" $args += @('--id','ByteDance.CapCut'",src)
 
+ def test_artcraft_and_cli_recovery_paths(self):
+  src=self.source
+  self.assertIn('windows/artcraft_portable.ps1',src)
+  self.assertIn('windows/repair_cli.ps1',src)
+  self.assertLess(src.index('13c ·'),src.index('14 ·'))
+  self.assertLess(src.index('13d ·'),src.index('14 ·'))
+  art=(ROOT/'windows/artcraft_portable.ps1').read_text(encoding='utf8')
+  self.assertIn('SHA256SUMS.txt',art)
+  self.assertIn('Get-FileHash',art)
+  self.assertIn('ARTCRAFT_EXE=',art)
+  cli=(ROOT/'windows/repair_cli.ps1').read_text(encoding='utf8')
+  self.assertIn('Invoke-BoundedInstaller',cli)
+  self.assertIn('opencode-ai',cli)
+  self.assertIn('@openai/codex',cli)
+
  def test_no_secret_in_summary_or_logs(self):
   s=(ROOT/'windows/legacy_dashboard.py').read_text(encoding='utf8')
   self.assertNotIn('RDP_PASSWORD=',s)

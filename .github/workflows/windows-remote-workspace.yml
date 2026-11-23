@@ -1845,6 +1845,18 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: ./windows/omniroute_desktop.ps1
+      - name: '13c · 🧩 Recover verified ArtCraft portable when MSI is missing'
+        if: ${{ !inputs.validation_only && inputs.install_artcraft && steps.remote.outcome == 'success' }}
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 5
+        run: ./windows/artcraft_portable.ps1
+      - name: '13d · 🧪 Recover missing CLIs with independent timeouts'
+        if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' && (inputs.coding_agent_choice != 'none' || inputs.router_choice != 'none' || inputs.ai_agent_choice != 'none') }}
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 12
+        run: ./windows/repair_cli.ps1
       - name: '14 · 🧷 Publish real app shortcuts to RDP desktop'
         if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' }}
         continue-on-error: true

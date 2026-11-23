@@ -66,7 +66,7 @@ def candidates(c, env=os.environ):
       'Hermes':[home/'.local/bin/hermes.exe',loc/'hermes/bin/hermes.exe'],
       'OpenClaw':[common/'openclaw.cmd',home/'AppData/Roaming/npm/openclaw.cmd'],
       'OpenCode':[common/'opencode.cmd',home/'AppData/Roaming/npm/opencode.cmd'],
-      'ArtCraft Launcher':[pf/'ArtCraft/ArtCraft Launcher/artcraft-launcher.exe',rloc/'Programs/ArtCraft/ArtCraft Launcher/artcraft-launcher.exe',rloc/'Programs/ArtCraft Launcher/artcraft-launcher.exe',pf/'ArtCraft Launcher/artcraft-launcher.exe',p86/'ArtCraft Launcher/artcraft-launcher.exe'],
+      'ArtCraft Launcher':[Path(env['ARTCRAFT_EXE']) if env.get('ARTCRAFT_EXE') else programs/'WFS-Apps/ArtCraft/artcraft-launcher.exe',pf/'ArtCraft/ArtCraft Launcher/artcraft-launcher.exe',rloc/'Programs/ArtCraft/ArtCraft Launcher/artcraft-launcher.exe',rloc/'Programs/ArtCraft Launcher/artcraft-launcher.exe',pf/'ArtCraft Launcher/artcraft-launcher.exe',p86/'ArtCraft Launcher/artcraft-launcher.exe'],
     }
 
 
