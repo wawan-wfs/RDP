@@ -269,6 +269,11 @@ jobs:
         run: |
           ./windows/remote.ps1 -Phase start
           if ($LASTEXITCODE -ne 0) { throw 'Primary remote endpoint did not pass readiness; inspect WFS RDP/noVNC diagnostics.' }
+      - name: '06-primary · 🔗 Show access immediately after primary verification'
+        if: ${{ !cancelled() && !inputs.validation_only && steps.remote.outcome == 'success' }}
+        shell: pwsh
+        continue-on-error: true
+        run: python -m windows.legacy_dashboard console
       - name: '06a · 🌐 Verify optional browser desktop (both mode)'
         id: browser
         if: ${{ !inputs.validation_only && inputs.remote_access == 'both' && steps.remote.outcome == 'success' }}

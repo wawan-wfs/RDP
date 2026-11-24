@@ -37,6 +37,16 @@ class TestNoVncProbe(unittest.TestCase):
         self.assertIn(b'GET /websockify HTTP/1.1', conn.sent)
         self.assertIn(b'Origin: http://127.0.0.1:6081', conn.sent)
 
+    def test_banner_split_across_binary_messages(self):
+        frame = b'\x82\x04RFB ' + b'\x82\x08003.008\n'
+        with mock.patch.object(mod.socket, 'create_connection', return_value=FakeSocket(self.response(frame=frame))):
+            self.assertEqual(mod.websocket_rfb_probe(keybytes=KEY), b'RFB 003.008\n')
+
+    def test_banner_split_across_continuations(self):
+        frame = b'\x02\x04RFB ' + b'\x89\x01x' + b'\x80\x08003.008\n'
+        with mock.patch.object(mod.socket, 'create_connection', return_value=FakeSocket(self.response(frame=frame))):
+            self.assertEqual(mod.websocket_rfb_probe(keybytes=KEY), b'RFB 003.008\n')
+
     def test_non_101_rejected(self):
         with mock.patch.object(mod.socket, 'create_connection', return_value=FakeSocket(self.response(status=b'HTTP/1.1 403 Forbidden'))):
             with self.assertRaisesRegex(mod.ProbeFailure, 'rejected'):

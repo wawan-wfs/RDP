@@ -128,3 +128,6 @@ The same run's application artifact listed Chrome, WinRAR, Node.js, ArtCraft Lau
 ### CLI recovery and validation hardening (24 November 2026)
 
 No newer Windows run was available after the bounded noVNC probe fix. Source audit found invalid PowerShell variable interpolation (`$name:`) in the CLI recovery script, corrected to `${name}:`. Both primary and recovery npm installs now use Node/npm-cli.js directly, and recovery checks each CLI with a bounded `--version` probe. Claude npm fallback is included when the native per-user executable is absent. Shortcut and report paths include the shared CLI prefix and OmniRoute Desktop. Pending interactive apps no longer inflate executable counts. Validation-only runs check every regression suite independently, including the upgrade and dashboard tests, so an earlier failure is not masked by a later success. Live Windows validation remains pending.
+
+
+The WebSocket probe now handles split RFB greetings, continuation frames and ping/pong, and the bridge caps TCP shutdown at three seconds. An early access card immediately after primary readiness prints the IP, hostname, and RDP command before optional browser setup; final reports still distinguish pending from failed noVNC. New regression fixtures cover the split greeting cases.

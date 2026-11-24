@@ -82,6 +82,10 @@ class Legacy(unittest.TestCase):
   self.assertTrue(any(x.get('name','').startswith('06a2') for x in steps))
   self.assertIn('windows.record_novnc_failure',self.text)
   self.assertIn('windows.legacy_dashboard console',self.text)
+  titles=[s['name'] for s in steps]
+  early=next(i for i,title in enumerate(titles) if title.startswith('06-primary'))
+  self.assertLess(titles.index(remote['name']),early)
+  self.assertLess(early,titles.index(browser['name']))
 
  def test_novnc_failfast_probe_is_bounded(self):
   remote=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')

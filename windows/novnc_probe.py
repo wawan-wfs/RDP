@@ -97,24 +97,50 @@ def websocket_rfb_probe(host=HOST, port=PORT, timeout=4, keybytes=None):
             if b"websocket" not in headers.get(b"upgrade", b"").lower():
                 raise ProbeFailure("Upgrade response lacks websocket protocol")
             reader = BufferedSocket(sock, payload)
-            h = reader.read_exact(2)
-            op = h[0] & 0x0F
-            if op != 2 or h[0] & 0x80 == 0:
-                raise ProbeFailure(f"First WebSocket frame not complete binary payload (opcode {op})")
-            masked = h[1] & 0x80
-            size = h[1] & 0x7F
-            if masked:
-                raise ProbeFailure("Server-sent WebSocket frame must not be masked")
-            if size == 126:
-                size = int.from_bytes(reader.read_exact(2), "big")
-            elif size == 127:
-                size = int.from_bytes(reader.read_exact(8), "big")
-            if not 12 <= size <= 8192:
-                raise ProbeFailure(f"Unexpected RFB banner frame size: {size}")
-            banner = reader.read_exact(size)
-            if not re.match(rb"^RFB [0-9]{3}\.[0-9]{3}\n", banner):
-                raise ProbeFailure("WebSocket connected but TightVNC RFB banner missing")
-            return banner[:12]
+            banner = bytearray()
+            fragmented = False
+            # A TCP RFB greeting can be split across independent binary messages
+            # or RFC6455 continuation frames. Neither is a handshake failure.
+            for _ in range(32):
+                header = reader.read_exact(2)
+                fin = bool(header[0] & 0x80)
+                opcode = header[0] & 0x0F
+                if header[0] & 0x70:
+                    raise ProbeFailure("Unexpected WebSocket reserved bits")
+                if header[1] & 0x80:
+                    raise ProbeFailure("Server-sent WebSocket frame must not be masked")
+                size = header[1] & 0x7F
+                if size == 126:
+                    size = int.from_bytes(reader.read_exact(2), "big")
+                elif size == 127:
+                    size = int.from_bytes(reader.read_exact(8), "big")
+                if size > 8192:
+                    raise ProbeFailure(f"Unexpected RFB banner frame size: {size}")
+                if opcode >= 8 and (not fin or size > 125):
+                    raise ProbeFailure("Invalid WebSocket control frame")
+                payload = reader.read_exact(size)
+                if opcode == 8:
+                    raise ProbeFailure("WebSocket closed before full RFB banner")
+                if opcode == 9:
+                    # Reply to server ping with a masked client pong.
+                    mask = os.urandom(4)
+                    sock.sendall(bytes((0x8A, 0x80 | size)) + mask +
+                                 bytes(v ^ mask[i % 4] for i, v in enumerate(payload)))
+                    continue
+                if opcode == 10:
+                    continue
+                if opcode == 2 and not fragmented:
+                    fragmented = not fin
+                elif opcode == 0 and fragmented:
+                    fragmented = not fin
+                else:
+                    raise ProbeFailure(f"Unexpected WebSocket frame opcode {opcode}")
+                banner.extend(payload)
+                if len(banner) >= 12:
+                    if not re.match(rb"^RFB [0-9]{3}\.[0-9]{3}\n", banner):
+                        raise ProbeFailure("WebSocket connected but TightVNC RFB banner missing")
+                    return bytes(banner[:12])
+            raise ProbeFailure("RFB banner incomplete after 32 frames")
     except (OSError, TimeoutError) as exc:
         raise ProbeFailure(f"WebSocket/RFB timed out or was unreachable: {type(exc).__name__}") from exc
 

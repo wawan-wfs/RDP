@@ -88,7 +88,14 @@ def console_access_lines(cfg, rows):
     fqdn = next((detail for name, state, detail in rows
                  if name == 'Tailnet DNS' and state == 'ready'), '')
     rdp_command = f'mstsc /v:{ip}:3389 /f' if rdp_ready else 'Not ready / not selected'
-    web_status = 'READY' if web else ('FAILED — see 06a' if status.get('Windows noVNC') == 'failed' else 'NOT READY / NOT SELECTED')
+    if web:
+        web_status = 'READY'
+    elif status.get('Windows noVNC') == 'failed':
+        web_status = 'FAILED — see 06a'
+    elif cfg.get('remote_access') in ('both','novnc'):
+        web_status = 'PENDING / NOT VERIFIED'
+    else:
+        web_status = 'NOT SELECTED'
     return [
         '[WFS/ACCESS] ========= WINDOWS REMOTE ACCESS =========',
         '[WFS/ACCESS] MODE             : ' + str(cfg.get('remote_access','rdp')).upper(),
@@ -228,7 +235,7 @@ def main():
         for line in console_access_lines(cfg, rows):
             print(line, flush=True)
         status_by_name={n:state for n,state,_ in rows}
-        if cfg.get('remote_access')=='both' and status_by_name.get('Windows noVNC')!='ready':
+        if cfg.get('remote_access')=='both' and status_by_name.get('Windows noVNC')=='failed':
             print('::warning title=WFS PARTIAL REMOTE ACCESS::RDP is available, but requested noVNC was not verified. See noVNC stage 06a.',flush=True)
         return
     if stage == 'apps':

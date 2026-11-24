@@ -50,8 +50,9 @@ async def tunnel(req):
                 await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             writer.close()
-            with contextlib.suppress(OSError):
-                await writer.wait_closed()
+            # Don't keep a bridge slot forever if Windows socket shutdown stalls.
+            with contextlib.suppress(OSError, TimeoutError):
+                await asyncio.wait_for(writer.wait_closed(), 3)
         return ws
 
 
