@@ -138,3 +138,8 @@ Password tidak ditulis ke log biasa. Jika menggunakan `random_each_run` dan meng
 ### noVNC diagnostics (24 November 2026)
 
 Run `45208451244` hung 12 minutes at the aiohttp live WebSocket/RFB probe after TightVNC, loopback 5900, aiohttp and local 6081 all passed. The live probe now uses the standard-library HTTP and raw WebSocket protocol handshake to validate the RFB banner, with a **25-second external process timeout**. The original bridge fixtures remain, and the new 6-test socket suite passed locally. The app dashboard now prints `[WFS/APP/SELECT]` showing requested app choices, so unselected apps cannot be misread as failed installs.
+
+
+### noVNC Tailscale Serve mapping verification (24 November 2026)
+
+After local RFB and WebSocket tests, the Windows workflow checks `tailscale serve status --json` and confirms the private tailnet route actually forwards to `127.0.0.1:6081`. TCP/6082 and HTTPS/443 are validated separately, including the MagicDNS hostname in HTTPS mode. Unexpected targets, absent listeners and public Funnel are rejected. If this check fails, noVNC remains unavailable while RDP can still run. The verifier has 11 local regression tests. Interactive console video and keyboard/mouse access must still be confirmed from an actual client.

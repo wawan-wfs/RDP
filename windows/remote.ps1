@@ -22,7 +22,7 @@ function Wait-ServicePort($target,$p) {
   for ($i=0; $i -lt 30; $i++) { if (Tcp $target $p) { return }; Start-Sleep 2 }
   throw "Port $p not reachable on configured listener"
 }
-function Ts-Serve($kind,$port,$target) {
+function Ts-Serve($kind,$port,$target,$dns='') {
   $json = & tailscale serve status --json
   if ($LASTEXITCODE -ne 0) { throw 'Could not inspect existing Tailscale Serve' }
   $s = $json | ConvertFrom-Json -AsHashtable
@@ -31,7 +31,10 @@ function Ts-Serve($kind,$port,$target) {
   }
   & tailscale serve --bg "--${kind}=$port" $target | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Tailscale Serve $kind $port failed" }
+  # Record ownership before verifying, so cleanup always removes a failed route.
   Add-Content "$state/serve.txt" "$kind $port"
+  & python -m windows.serve_verify $kind $port $target $dns
+  if ($LASTEXITCODE -ne 0) { throw "Private Tailscale Serve $kind/$port route was not verified" }
 }
 $terminal = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
 $listener = "$terminal\WinStations\RDP-Tcp"
@@ -298,7 +301,7 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
       try {
         $dns = ((& tailscale status --json | ConvertFrom-Json).Self.DNSName).TrimEnd('.')
         if ($dns -notmatch '^[a-z0-9.-]+\.ts\.net$') { throw 'MagicDNS is unavailable' }
-        Ts-Serve https 443 'http://127.0.0.1:6081'
+        Ts-Serve https 443 'http://127.0.0.1:6081' $dns
         $url = "https://$dns/vnc.html$fragment"
       } catch { Status 'Windows HTTPS' 'warning' 'HTTPS is unavailable; trying private TCP 6082' }
     }
@@ -307,7 +310,7 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
       Ts-Serve tcp 6082 'tcp://127.0.0.1:6081'
       $url = "http://${ip}:6082/vnc.html$fragment"
     }
-    Status 'Windows noVNC' 'ready' "$url; console session; VNC password required"
+    Status 'Windows noVNC' 'ready' "$url; private Tailscale Serve mapping verified; console session; interactive control not yet confirmed; VNC password required"
     Set-Content "$state/novnc-ready" 'yes'
   } catch {
     Status 'Windows noVNC' 'failed' "Failed at $novncStage; see noVNC step logs"

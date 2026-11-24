@@ -95,6 +95,14 @@ class Legacy(unittest.TestCase):
   self.assertIn('python windows/test_novnc_probe.py',self.text)
   self.assertIn('WFS/APP/SELECT',(ROOT/'windows/legacy_dashboard.py').read_text(encoding='utf8'))
 
+ def test_serve_route_verified_before_browser_ready(self):
+  remote=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
+  self.assertIn('python -m windows.serve_verify $kind $port $target $dns',remote)
+  self.assertIn("Ts-Serve https 443 'http://127.0.0.1:6081' $dns",remote)
+  self.assertIn('Serve mapping verified',remote)
+  self.assertIn('python windows/test_serve_verify.py',self.text)
+  self.assertLess(remote.index('windows.serve_verify'),remote.index("Status 'Windows noVNC' 'ready'"))
+
  def test_novnc_msi_magic_and_fallback(self):
   s=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
   for part in ('D0CF11E0A1B11AE1','Get-AuthenticodeSignature','GlavSoft.TightVNC','SERVER_ADD_FIREWALL_EXCEPTION=0','SET_LOOPBACKONLY=1','VNC loopback/auth gate failed'):

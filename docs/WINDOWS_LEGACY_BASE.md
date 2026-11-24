@@ -131,3 +131,8 @@ No newer Windows run was available after the bounded noVNC probe fix. Source aud
 
 
 The WebSocket probe now handles split RFB greetings, continuation frames and ping/pong, and the bridge caps TCP shutdown at three seconds. An early access card immediately after primary readiness prints the IP, hostname, and RDP command before optional browser setup; final reports still distinguish pending from failed noVNC. New regression fixtures cover the split greeting cases.
+
+
+### Private Serve mapping gate (24 November 2026)
+
+The browser setup now requires three bounded checks: TightVNC's local-only RFB listener, a local HTTP/WebSocket/RFB handshake, and the actual Tailscale Serve status JSON (TCP/6082 or HTTPS/443). The mapping must target loopback `127.0.0.1:6081`, and public Funnel must remain disabled. The generated noVNC URL is only labeled ready after these checks. The route is registered for cleanup before verification to prevent orphaned mappings. 11 pure regression tests validate valid and invalid Serve configurations; a live Windows session has not verified the new gate yet.
