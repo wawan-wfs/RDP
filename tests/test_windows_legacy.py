@@ -95,6 +95,13 @@ class Legacy(unittest.TestCase):
   self.assertIn('python windows/test_novnc_probe.py',self.text)
   self.assertIn('WFS/APP/SELECT',(ROOT/'windows/legacy_dashboard.py').read_text(encoding='utf8'))
 
+ def test_serve_activation_bounded(self):
+  remote=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
+  self.assertIn("Get-Command tailscale.exe",remote)
+  self.assertIn("Invoke-BoundedInstaller -FilePath $tailscaleExe",remote)
+  self.assertIn("-TimeoutSeconds 35",remote)
+  self.assertNotIn('& tailscale serve --bg',remote)
+
  def test_serve_route_verified_before_browser_ready(self):
   remote=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
   self.assertIn('python -m windows.serve_verify $kind $port $target $dns',remote)

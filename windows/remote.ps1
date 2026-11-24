@@ -29,8 +29,10 @@ function Ts-Serve($kind,$port,$target,$dns='') {
   if ($s -and (($s.TCP -and $s.TCP.Contains([string]$port)) -or ($s.Web -and @($s.Web.Keys | Where-Object { $_ -like "*:$port" }).Count) -or ($s.AllowFunnel -and $true -in $s.AllowFunnel.Values))) {
     throw 'Refusing to overwrite existing Serve or use a public node'
   }
-  & tailscale serve --bg "--${kind}=$port" $target | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "Tailscale Serve $kind $port failed" }
+  # No unbounded CLI prompt/hang during optional browser setup.
+  $tailscaleExe = (Get-Command tailscale.exe -ErrorAction Stop).Source
+  $serveExit = Invoke-BoundedInstaller -FilePath $tailscaleExe -Arguments @('serve','--bg',"--${kind}=$port",$target) -TimeoutSeconds 35
+  if ($serveExit -ne 0) { throw "Tailscale Serve $kind $port returned $serveExit" }
   # Record ownership before verifying, so cleanup always removes a failed route.
   Add-Content "$state/serve.txt" "$kind $port"
   & python -m windows.serve_verify $kind $port $target $dns

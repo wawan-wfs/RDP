@@ -136,3 +136,6 @@ The WebSocket probe now handles split RFB greetings, continuation frames and pin
 ### Private Serve mapping gate (24 November 2026)
 
 The browser setup now requires three bounded checks: TightVNC's local-only RFB listener, a local HTTP/WebSocket/RFB handshake, and the actual Tailscale Serve status JSON (TCP/6082 or HTTPS/443). The mapping must target loopback `127.0.0.1:6081`, and public Funnel must remain disabled. The generated noVNC URL is only labeled ready after these checks. The route is registered for cleanup before verification to prevent orphaned mappings. 11 pure regression tests validate valid and invalid Serve configurations; a live Windows session has not verified the new gate yet.
+
+
+Tailscale Serve activation itself now uses the existing bounded installer-process helper with a **35-second timeout** instead of an unbounded native CLI call. A stalled Serve command can no longer hold the entire noVNC step; failures remain isolated from verified RDP access in `both` mode.
