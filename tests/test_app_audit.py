@@ -15,6 +15,11 @@ class AppAudit(unittest.TestCase):
   rows=inspect(c,exists=lambda p: str(p).endswith('Microsoft VS Code/Code.exe'),env=env)
   self.assertEqual([x[1] for x in rows if x[0]=='VS Code'],['installed'])
   self.assertEqual([x[1] for x in rows if x[0]=='Chrome'],['failed'])
+ def test_pending_not_counted_as_detected(self):
+  from windows.app_audit import inventory_counts
+  rows=[('Chrome','installed','found','chrome.exe'),('CapCut','pending interactive','retry',None),('Codex CLI','failed','missing',None)]
+  self.assertEqual(inventory_counts(rows),{'detected':1,'pending':1,'missing':1})
+
  def test_no_password_logged(self):
   from windows.app_audit import candidates
   c={'rdp_username':'RDP'}

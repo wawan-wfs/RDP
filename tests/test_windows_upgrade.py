@@ -42,7 +42,7 @@ class Regression(unittest.TestCase):
   src=self.source
   self.assertNotIn("if ($Name -in @('CapCut', 'Codex CLI', 'Claude Code')) { throw }",src)
   self.assertNotIn("Install-NpmGlobalPackage -PackageName 'omniroute'",src)
-  self.assertIn("Invoke-BoundedInstaller -FilePath $env:ComSpec",src)
+  self.assertIn("Invoke-BoundedInstaller -FilePath $nodeForNpm",src)
   self.assertIn("Write-Warning \"⚠️ Some installation groups failed:",src)
   a=src.index("Add-InstallTask -Name 'gui'")
   g=src[a:src.index("Add-InstallTask -Name 'cli'",a)]
@@ -65,6 +65,9 @@ class Regression(unittest.TestCase):
   self.assertIn('Invoke-BoundedInstaller',cli)
   self.assertIn('opencode-ai',cli)
   self.assertIn('@openai/codex',cli)
+  self.assertNotIn('$name:',cli)
+  self.assertIn('Test-CliVersion',cli)
+  self.assertIn('@anthropic-ai/claude-code',cli)
 
  def test_capcut_interactive_repair_is_not_claimed_installed(self):
   self.assertIn('windows/capcut_logon.ps1',self.source)

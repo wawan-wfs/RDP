@@ -90,20 +90,27 @@ def inspect(c, exists=lambda p:p.is_file(), env=os.environ):
     return results
 
 
+def inventory_counts(rows):
+    """Only count actual executable paths as detected; deferred installs are not success."""
+    return {
+        'detected': sum(bool(target) for _,_,_,target in rows),
+        'pending': sum(state=='pending interactive' for _,state,_,_ in rows),
+        'missing': sum(state=='failed' for _,state,_,_ in rows),
+    }
+
+
 def main():
     cfg=read_config(); rows=inspect(cfg)
     print('::group::WFS / Application verification (executable-based)',flush=True)
-    installed=missing=0
+    counts=inventory_counts(rows)
     for name,state,detail,target in rows:
-        if state=='failed': missing+=1
-        else: installed+=1
         print(f'[WFS/APP] {name}: {state.upper()}'+(f' | {target}' if target else ''),flush=True)
         p=subprocess.run([sys.executable,'shared/workspace.py','status',f'App: {name}',state,detail],check=False)
         if p.returncode:
             raise RuntimeError(f'Could not record app status: {name}')
-    print(f'::endgroup::\n::notice title=WFS application inventory::{installed} executables found; {missing} requested executables missing. See Summary and artifact.',flush=True)
-    if missing:
-        print(f'::warning title=WFS missing applications::{missing} selected applications have no detected executable. Check installer groups; do not assume step success means installed.',flush=True)
+    print(f"::endgroup::\n::notice title=WFS application inventory::{counts['detected']} detected; {counts['pending']} pending login; {counts['missing']} missing. See Summary and artifact.",flush=True)
+    if counts['missing'] or counts['pending']:
+        print('::warning title=WFS incomplete applications::Some requested apps are missing or pending login; do not assume job success means all apps are installed.',flush=True)
     return 0
 
 

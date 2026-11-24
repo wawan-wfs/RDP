@@ -236,10 +236,10 @@ jobs:
         run: |
           python -m pip install -r tests/requirements.txt --disable-pip-version-check
           if ($LASTEXITCODE -ne 0) { throw 'Test requirements failed' }
-          python tests/test_windows_legacy.py
-          python tests/test_access_credentials.py
-          python tests/test_app_audit.py
-          if ($LASTEXITCODE -ne 0) { throw 'Windows legacy regression tests failed' }
+          foreach ($test in @('tests/test_windows_legacy.py','tests/test_access_credentials.py','tests/test_app_audit.py','tests/test_windows_upgrade.py','tests/test_dashboard_connections.py','tests/test_workspaces.py')) {
+            python $test
+            if ($LASTEXITCODE -ne 0) { throw "Regression suite failed: $test" }
+          }
           python windows/test_tailnet_ip.py
           if ($LASTEXITCODE -ne 0) { throw 'Tailnet IPv4 tests failed' }
           python windows/test_novnc.py
@@ -779,8 +779,12 @@ jobs:
               Write-Host "📦 Installing $PackageName in shared RDP-accessible prefix: $prefix"
               # Enforce a per-package timeout. One native npm install must never
               # consume the entire CLI worker deadline and starve later choices.
-              $npmLine = '""{0}" install --global --prefix "{1}" --include=optional --no-audit --no-fund --no-progress --fetch-retries=1 --fetch-timeout=60000 "{2}@latest""' -f $npm,$prefix,$PackageName
-              $exitCode = Invoke-BoundedInstaller -FilePath $env:ComSpec -Arguments @('/d','/s','/c',$npmLine) -TimeoutSeconds 165
+              # Invoke the installed Node runtime directly, avoiding nested cmd.exe quoting.
+              $nodeForNpm = Join-Path (Split-Path $npm -Parent) 'node.exe'
+              $npmCli = Join-Path (Split-Path $npm -Parent) 'node_modules\npm\bin\npm-cli.js'
+              if (-not (Test-Path $nodeForNpm) -or -not (Test-Path $npmCli)) { throw 'Node.js npm CLI files missing' }
+              $npmArgs = @(('"{0}"' -f $npmCli), 'install', '--global', '--prefix', ('"{0}"' -f $prefix), '--include=optional', '--no-audit', '--no-fund', '--no-progress', '--fetch-retries=1', '--fetch-timeout=60000', ('"{0}@latest"' -f $PackageName))
+              $exitCode = Invoke-BoundedInstaller -FilePath $nodeForNpm -Arguments $npmArgs -TimeoutSeconds 165
               if ($exitCode -ne 0 -or -not (Test-Path $exe)) { throw "❌ npm package failed verification: $PackageName (exit $exitCode)" }
             }
             $node = (Get-Command node.exe -ErrorAction Stop).Source
@@ -1857,7 +1861,7 @@ jobs:
         if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' && (inputs.coding_agent_choice != 'none' || inputs.router_choice != 'none' || inputs.ai_agent_choice != 'none') }}
         shell: pwsh
         continue-on-error: true
-        timeout-minutes: 12
+        timeout-minutes: 17
         run: ./windows/repair_cli.ps1
       - name: '13e · 🎬 Prepare CapCut RDP-profile logon repair'
         if: ${{ !inputs.validation_only && steps.remote.outcome == 'success' && (inputs.editor_choice == 'capcut' || inputs.editor_choice == 'both') }}
@@ -2110,7 +2114,7 @@ jobs:
             -ExecutableNames @("terminal64.exe", "terminal.exe")
 
           $claudeTarget = Resolve-AppTarget `
-            -CandidatePaths @($env:CLAUDE_EXE, "$rdpProfile\.local\bin\claude.exe")
+            -CandidatePaths @($env:CLAUDE_EXE, "$rdpProfile\.local\bin\claude.exe", "$runnerRoamingNpm\claude.cmd")
 
           $hermesTarget = Resolve-AppTarget `
             -CandidatePaths @(
@@ -2397,17 +2401,20 @@ jobs:
             "${env:ProgramFiles(x86)}\MetaTrader 5\terminal.exe"
           )
 
-          $codexDetected = Test-AnyPath @($env:CODEX_EXE)
+          $codexDetected = Test-AnyPath @($env:CODEX_EXE, "$env:ProgramData\RDP-Tools\npm\codex.cmd")
 
-          $claudeDetected = Test-AnyPath @($env:CLAUDE_EXE)
+          $claudeDetected = Test-AnyPath @($env:CLAUDE_EXE, "$env:ProgramData\RDP-Tools\npm\claude.cmd")
 
           $nineRouterDetected = (Test-CommandExists "9router") -or (Test-AnyPath @(
+            "$env:ProgramData\RDP-Tools\npm\9router.cmd",
             "$env:APPDATA\npm\9router.cmd",
             "$env:ProgramFiles\nodejs\9router.cmd",
             "${env:ProgramFiles(x86)}\nodejs\9router.cmd"
           ))
 
           $omniRouteDetected = (Test-CommandExists "omniroute") -or (Test-AnyPath @(
+            $env:OMNIROUTE_EXE,
+            "$env:ProgramData\WFS-Apps\OmniRoute\OmniRoute.exe",
             "$env:APPDATA\npm\omniroute.cmd",
             "$env:ProgramFiles\nodejs\omniroute.cmd",
             "${env:ProgramFiles(x86)}\nodejs\omniroute.cmd"
@@ -2419,12 +2426,14 @@ jobs:
           ))
 
           $openclawDetected = (Test-CommandExists "openclaw") -or (Test-AnyPath @(
+            "$env:ProgramData\RDP-Tools\npm\openclaw.cmd",
             "$env:APPDATA\npm\openclaw.cmd",
             "$env:ProgramFiles\nodejs\openclaw.cmd",
             "${env:ProgramFiles(x86)}\nodejs\openclaw.cmd"
           ))
 
           $openCodeDetected = (Test-CommandExists "opencode") -or (Test-AnyPath @(
+            "$env:ProgramData\RDP-Tools\npm\opencode.cmd",
             "$env:APPDATA\npm\opencode.cmd",
             "$env:ProgramFiles\nodejs\opencode.cmd",
             "${env:ProgramFiles(x86)}\nodejs\opencode.cmd"

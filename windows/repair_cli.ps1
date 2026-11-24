@@ -13,6 +13,10 @@ if (-not (Test-Path $npmCli)) { throw 'npm-cli.js missing from installed Node.js
 $packages = [ordered]@{}
 if ($cfg.router_choice -in @('9router','both')) { $packages['9Router'] = @('9router','9router') }
 if ($cfg.coding_agent_choice -in @('codex','both')) { $packages['Codex CLI'] = @('@openai/codex','codex') }
+if ($cfg.coding_agent_choice -in @('claude','both')) {
+  $nativeClaude = Join-Path $env:SystemDrive ("Users\" + $cfg.rdp_username + "\.local\bin\claude.exe")
+  if (-not (Test-Path $nativeClaude -PathType Leaf)) { $packages['Claude Code'] = @('@anthropic-ai/claude-code','claude') }
+}
 if ($cfg.ai_agent_choice -in @('opencode','all')) { $packages['OpenCode'] = @('opencode-ai','opencode') }
 if ($cfg.ai_agent_choice -in @('openclaw','both','all')) { $packages['OpenClaw'] = @('openclaw','openclaw') }
 $nodeDir = Split-Path $node -Parent
@@ -24,6 +28,18 @@ foreach ($part in @($prefix,$nodeDir)) {
 [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'Machine')
 $env:PATH = "$prefix;$nodeDir;" + $env:PATH
 if ($env:GITHUB_PATH) { $prefix | Add-Content $env:GITHUB_PATH -Encoding UTF8 }
+function Test-CliVersion([string]$path) {
+  if (-not (Test-Path $path -PathType Leaf)) { return $false }
+  try {
+    # npm .cmd shims need cmd.exe, but only a fixed --version command is executed.
+    $line = '""{0}" --version"' -f $path
+    $result = Invoke-BoundedInstaller -FilePath $env:ComSpec -Arguments @('/d','/s','/c',$line) -TimeoutSeconds 12
+    return ($result -eq 0)
+  } catch {
+    Write-Warning 'CLI version probe failed or timed out'
+    return $false
+  }
+}
 $installed = 0
 $missing = 0
 foreach ($entry in $packages.GetEnumerator()) {
@@ -31,8 +47,8 @@ foreach ($entry in $packages.GetEnumerator()) {
   $package = [string]$entry.Value[0]
   $command = [string]$entry.Value[1]
   $target = Join-Path $prefix "$command.cmd"
-  if (Test-Path $target -PathType Leaf) {
-    Write-Host "[WFS/REPAIR] $name: detected at $target; no download"
+  if (Test-CliVersion $target) {
+    Write-Host "[WFS/REPAIR] ${name}: --version passed; no download"
     $installed++
     continue
   }
@@ -47,14 +63,16 @@ foreach ($entry in $packages.GetEnumerator()) {
       '--fetch-retries=1', '--fetch-timeout=60000', ('"{0}@latest"' -f $package)
     )
     $exitCode = Invoke-BoundedInstaller -FilePath $node -Arguments $nativeArgs -TimeoutSeconds 145
-    if ($exitCode -notin @(0,3010) -or -not (Test-Path $target -PathType Leaf)) {
-      throw "npm exited $exitCode or executable missing"
+    if ($exitCode -ne 0 -or -not (Test-CliVersion $target)) {
+      throw "npm exited $exitCode or CLI --version did not pass"
     }
-    Write-Host "[WFS/REPAIR] $name: executable verified at $target"
+    if ($command -eq 'codex') { "CODEX_EXE=$target" | Add-Content $env:GITHUB_ENV -Encoding UTF8 }
+    if ($command -eq 'claude') { "CLAUDE_EXE=$target" | Add-Content $env:GITHUB_ENV -Encoding UTF8 }
+    Write-Host "[WFS/REPAIR] ${name}: --version passed at $target"
     $installed++
   } catch {
     $missing++
-    Write-Warning "[WFS/REPAIR] $name: $($_.Exception.Message)"
+    Write-Warning "[WFS/REPAIR] ${name}: $($_.Exception.Message)"
   } finally {
     Write-Host '::endgroup::'
   }
