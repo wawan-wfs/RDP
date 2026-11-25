@@ -331,7 +331,7 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
       Ts-Serve tcp 6082 'tcp://127.0.0.1:6081'
       $url = "http://${ip}:6082/vnc.html$fragment"
     }
-    Status 'Windows noVNC' 'ready' "$url; private Tailscale Serve mapping and VNC password authentication verified; console session; interactive control not yet confirmed"
+    Status 'Windows noVNC' 'ready' "$url; private Tailscale Serve mapping verified; VNC password authentication verified; console session; interactive control not yet confirmed"
     Set-Content "$state/novnc-ready" 'yes'
   } catch {
     Status 'Windows noVNC' 'failed' "Failed at $novncStage; see noVNC step logs"
