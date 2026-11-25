@@ -143,3 +143,8 @@ Run `45208451244` hung 12 minutes at the aiohttp live WebSocket/RFB probe after 
 ### noVNC Tailscale Serve mapping verification (24 November 2026)
 
 After local RFB and WebSocket tests, the Windows workflow checks `tailscale serve status --json` and confirms the private tailnet route actually forwards to `127.0.0.1:6081`. TCP/6082 and HTTPS/443 are validated separately, including the MagicDNS hostname in HTTPS mode. Unexpected targets, absent listeners and public Funnel are rejected. If this check fails, noVNC remains unavailable while RDP can still run. The verifier has 11 local regression tests. Interactive console video and keyboard/mouse access must still be confirmed from an actual client.
+
+
+### noVNC password rejection (25 November 2026)
+
+If noVNC shows **Authentication failed from 127.0.0.1**, the browser and private relay have already reached TightVNC, but the login was rejected. Use the eight-character VNC session credential, not the RDP password. In `same_from_secret` mode an ASCII secret matching `[A-Za-z0-9_-]{8,}` uses the first eight characters. If other characters are present, the eight-character SHA-256 compatibility value described above is used. In `random_each_run` mode, use the Job Summary when explicit `reveal_random_password` was selected; never disclose the original secret. The newly installed TightVNC service now receives the exact derived password via its service registry configuration while stopped, and an actual RFB password challenge must pass before noVNC can be marked ready. This does not alter an already running session or a pre-existing TightVNC service. Passwords are not printed by the verifier. Six local fixture tests cover accepted/rejected credentials and service ownership.

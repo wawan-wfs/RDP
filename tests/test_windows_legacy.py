@@ -110,6 +110,14 @@ class Legacy(unittest.TestCase):
   self.assertIn('python windows/test_serve_verify.py',self.text)
   self.assertLess(remote.index('windows.serve_verify'),remote.index("Status 'Windows noVNC' 'ready'"))
 
+ def test_vnc_actual_password_gate_before_ready(self):
+  remote=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
+  self.assertIn("windows.vnc_auth','configure'",remote)
+  self.assertIn("windows.vnc_auth','verify'",remote)
+  self.assertLess(remote.index("windows.vnc_auth','configure'"),remote.index("windows.vnc_auth','verify'"))
+  self.assertLess(remote.index("windows.vnc_auth','verify'"),remote.index("Status 'Windows noVNC' 'ready'"))
+  self.assertIn('python windows/test_vnc_auth.py',self.text)
+
  def test_novnc_msi_magic_and_fallback(self):
   s=(ROOT/'windows/remote.ps1').read_text(encoding='utf8')
   for part in ('D0CF11E0A1B11AE1','Get-AuthenticodeSignature','GlavSoft.TightVNC','SERVER_ADD_FIREWALL_EXCEPTION=0','SET_LOOPBACKONLY=1','VNC loopback/auth gate failed'):

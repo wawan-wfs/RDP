@@ -139,3 +139,8 @@ The browser setup now requires three bounded checks: TightVNC's local-only RFB l
 
 
 Tailscale Serve activation itself now uses the existing bounded installer-process helper with a **35-second timeout** instead of an unbounded native CLI call. A stalled Serve command can no longer hold the entire noVNC step; failures remain isolated from verified RDP access in `both` mode.
+
+
+### Run 45620975851 — noVNC password rejection (25 November 2026)
+
+The user screenshot reports `Authentication failed from 127.0.0.1` and its endpoint matches the connection artifact. GitHub reported the browser step successful, but its readiness checks did not perform a real password login. The new workflow configures the run-owned TightVNC service registry with the same derived eight-character VNC credential, restarts the service, then completes a local password-authenticated RFB handshake before enabling the browser relay. No password is written to command arguments or logs by the new helper; pre-existing services remain untouched. Six local synthetic tests passed, including a known VNC password-format vector, valid and rejected authentication, and rejection of no-auth mode. Real TightVNC registry/service behavior must be verified on the next manual Windows run; the current active run is not modified.

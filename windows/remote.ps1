@@ -257,13 +257,32 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
     $novncStage = 'TightVNC service and loopback listener'
     Write-Host '[WFS/noVNC] Installer finished; checking local VNC service'
     if (-not (Get-Service tvnserver -ErrorAction SilentlyContinue)) { throw 'TightVNC installation did not create the server service' }
+    $novncStage = 'TightVNC owned service credential configuration'
+    $authPython = (Get-Command python -ErrorAction Stop).Source
+    # Use the same derivation as the displayed/session credential. Installer
+    # success alone does not prove that the service stored the correct value.
+    & $authPython -c 'from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES' 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      $dependency = Invoke-BoundedInstaller $authPython @('-m','pip','install','--disable-pip-version-check','--retries','1','--timeout','20','cryptography>=45,<48') 90
+      if ($dependency -ne 0) { throw 'VNC authentication dependency installation failed' }
+    }
+    if ((Get-Service tvnserver).Status -ne 'Stopped') {
+      Stop-Service tvnserver -Force -ErrorAction Stop
+    }
+    $credentialCode = Invoke-BoundedInstaller -FilePath $authPython -Arguments @('-m','windows.vnc_auth','configure') -TimeoutSeconds 25
+    if ($credentialCode -ne 0) { throw 'Could not configure the owned TightVNC service credential' }
     Write-Host '[WFS/noVNC] Starting VNC service and checking loopback port 5900'
     Start-Service tvnserver -ErrorAction Stop
     Wait-ServicePort '127.0.0.1' 5900
     & python shared/rfb_probe.py 127.0.0.1 5900 | Out-Null
     if ($LASTEXITCODE -ne 0 -or (Get-NetTCPConnection -State Listen -LocalPort 5900 | Where-Object LocalAddress -notin @('127.0.0.1','::1'))) { throw 'VNC loopback/auth gate failed' }
+    $novncStage = 'TightVNC session password authentication'
+    # Authenticate against the real local service before publishing a URL.
+    # This only tests security type 2; no desktop interaction is performed.
+    $authCode = Invoke-BoundedInstaller -FilePath $authPython -Arguments @('-m','windows.vnc_auth','verify') -TimeoutSeconds 25
+    if ($authCode -ne 0) { throw 'TightVNC did not accept the configured session password' }
     $novncStage = 'download noVNC frontend'
-    Write-Host '[WFS/noVNC] VNC loopback verified; downloading noVNC frontend'
+    Write-Host '[WFS/noVNC] VNC loopback and actual password verified; downloading noVNC frontend'
     $bundle = "$state/novnc.zip"
     Invoke-WebRequest 'https://codeload.github.com/novnc/noVNC/zip/refs/tags/v1.7.0' -OutFile $bundle -TimeoutSec 60
     Expand-Archive -LiteralPath $bundle -DestinationPath "$state/web"
@@ -312,7 +331,7 @@ if (($Phase -eq 'start' -and $c.remote_access -eq 'novnc') -or ($Phase -eq 'brow
       Ts-Serve tcp 6082 'tcp://127.0.0.1:6081'
       $url = "http://${ip}:6082/vnc.html$fragment"
     }
-    Status 'Windows noVNC' 'ready' "$url; private Tailscale Serve mapping verified; console session; interactive control not yet confirmed; VNC password required"
+    Status 'Windows noVNC' 'ready' "$url; private Tailscale Serve mapping and VNC password authentication verified; console session; interactive control not yet confirmed"
     Set-Content "$state/novnc-ready" 'yes'
   } catch {
     Status 'Windows noVNC' 'failed' "Failed at $novncStage; see noVNC step logs"

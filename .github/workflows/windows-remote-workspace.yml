@@ -248,6 +248,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'noVNC bounded WebSocket/RFB probe tests failed' }
           python windows/test_serve_verify.py
           if ($LASTEXITCODE -ne 0) { throw 'Private Tailscale Serve mapping tests failed' }
+          python windows/test_vnc_auth.py
+          if ($LASTEXITCODE -ne 0) { throw 'VNC session authentication fixture tests failed' }
           ./tests/verify-windows.ps1
       - name: '05 · 🐾 Connect Tailscale private network'
         if: ${{ !inputs.validation_only && inputs.runner_type == 'github' }}
